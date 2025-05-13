@@ -79,6 +79,9 @@ public static unsafe class RandomX
 
     [DllImport("librandomx", EntryPoint = "randomx_calculate_hash", CallingConvention = CallingConvention.Cdecl)]
     private static extern void calculate_hash(IntPtr machine, byte* input, int inputSize, byte* output);
+    
+    [DllImport("librandomx", EntryPoint = "randomx_calculate_commitment", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void calculate_commitment(byte* input, int inputSize, byte* hash_in, byte* com_out);
 
     public class GenContext
     {
@@ -183,28 +186,44 @@ public static unsafe class RandomX
     public static void CreateSeed(string realm, string seedHex,
         randomx_flags? flagsOverride = null, randomx_flags? flagsAdd = null, int vmCount = 1)
     {
+        logger.Warn(() => $"DEBUG-RandomX: CreateSeed called for realm={realm}, seedHex={seedHex}");
+        
         lock(realms)
         {
             if(!realms.TryGetValue(realm, out var seeds))
             {
+                logger.Warn(() => $"DEBUG-RandomX: Creating new realm dictionary for {realm}");
                 seeds = new Dictionary<string, Tuple<GenContext, BlockingCollection<RxVm>>>();
-
                 realms[realm] = seeds;
+            }
+            else
+            {
+                logger.Warn(() => $"DEBUG-RandomX: Found existing realm: {realm}");
             }
 
             if(!seeds.TryGetValue(seedHex, out var seed))
             {
+                logger.Warn(() => $"DEBUG-RandomX: Seed {seedHex} not found, creating new VMs");
+                
                 var flags = flagsOverride ?? randomx_get_flags();
-
                 if(flagsAdd.HasValue)
                     flags |= flagsAdd.Value;
+                    
+                logger.Warn(() => $"DEBUG-RandomX: Using flags: {flags}");
 
                 if (vmCount == -1)
                     vmCount = Environment.ProcessorCount;
+                    
+                logger.Warn(() => $"DEBUG-RandomX: Creating {vmCount} VMs");
 
                 seed = CreateSeed(realm, seedHex, flags, vmCount);
-
                 seeds[seedHex] = seed;
+                
+                logger.Warn(() => $"DEBUG-RandomX: Seed {seedHex} created and stored for realm {realm}");
+            }
+            else
+            {
+                logger.Warn(() => $"DEBUG-RandomX: Seed {seedHex} already exists for realm {realm}");
             }
         }
     }
@@ -284,43 +303,98 @@ public static unsafe class RandomX
 
         var sw = Stopwatch.StartNew();
         var success = false;
+        
+        // For logging, we need to convert spans to arrays
+        var dataBytes = data.ToArray();
+        logger.Warn(() => $"DEBUG-RandomX: Starting CalculateHash for realm={realm}, seedHex={seedHex}, dataLength={dataBytes.Length}");
+        var dataPrefix = dataBytes.Length >= 16 ? BitConverter.ToString(dataBytes, 0, 16).Replace("-", "") : BitConverter.ToString(dataBytes).Replace("-", "");
+        logger.Warn(() => $"DEBUG-RandomX: First 16 bytes of data: {dataPrefix}");
 
         var (ctx, seedVms) = GetSeed(realm, seedHex);
 
         if(ctx != null)
         {
+            logger.Warn(() => $"DEBUG-RandomX: Found seed for realm={realm}, seedHex={seedHex}");
             RxVm vm = null;
 
             try
             {
                 // lease a VM
                 vm = seedVms.Take();
+                logger.Warn(() => $"DEBUG-RandomX: Acquired VM for hashing");
 
                 vm.CalculateHash(data, result);
+                
+                // Copy to array for logging
+                var resultBytes = result.ToArray();
+                logger.Warn(() => $"DEBUG-RandomX: Computed hash: {resultBytes.ToHexString()}");
 
                 ctx.LastAccess = DateTime.Now;
                 success = true;
 
                 messageBus?.SendTelemetry("RandomX", TelemetryCategory.Hash, sw.Elapsed, true);
             }
-
             catch(Exception ex)
             {
-                logger.Error(() => ex.Message);
+                logger.Error(() => $"DEBUG-RandomX: Error calculating hash: {ex.Message}");
+                logger.Error(() => ex.StackTrace);
             }
-
             finally
             {
                 // return it
                 if(vm != null)
+                {
                     seedVms.Add(vm);
+                    logger.Warn(() => $"DEBUG-RandomX: Returned VM to pool");
+                }
             }
+        }
+        else
+        {
+            logger.Warn(() => $"DEBUG-RandomX: NO SEED FOUND for realm={realm}, seedHex={seedHex}");
         }
 
         if(!success)
         {
             // clear result on failure
             empty.CopyTo(result);
+            logger.Warn(() => $"DEBUG-RandomX: Returning empty result due to failure");
+        }
+        else
+        {
+            logger.Warn(() => $"DEBUG-RandomX: Successfully calculated hash in {sw.ElapsedMilliseconds}ms");
+        }
+    }
+    
+    /// <summary>
+    /// Calculates the RandomX commitment hash for a given input and hash
+    /// </summary>
+    /// <param name="input">The input data (typically the original header bytes)</param>
+    /// <param name="hash_in">The RandomX hash result</param>
+    /// <param name="commitment_result">The output span where the commitment hash will be written</param>
+    public static void CalculateCommitment(ReadOnlySpan<byte> input, ReadOnlySpan<byte> hash_in, Span<byte> commitment_result)
+    {
+        Contract.Requires<ArgumentException>(hash_in.Length >= 32, "Hash input must be at least 32 bytes");
+        Contract.Requires<ArgumentException>(commitment_result.Length >= 32, "Commitment result buffer must be at least 32 bytes");
+        
+        var sw = Stopwatch.StartNew();
+        
+        try
+        {
+            fixed (byte* input_ptr = input)
+            fixed (byte* hash_ptr = hash_in)
+            fixed (byte* result_ptr = commitment_result)
+            {
+                calculate_commitment(input_ptr, input.Length, hash_ptr, result_ptr);
+                
+                messageBus?.SendTelemetry("RandomX", TelemetryCategory.Hash, sw.Elapsed, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Error(() => $"Error calculating RandomX commitment: {ex.Message}");
+            // clear result on failure
+            empty.CopyTo(commitment_result);
         }
     }
 }

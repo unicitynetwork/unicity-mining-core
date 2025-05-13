@@ -280,6 +280,44 @@ public abstract class BitcoinJobManagerBase<TJob> : JobManagerBase<TJob>
         {
             logger.Warn(() => $"Block {share.BlockHeight} submission failed with: {submitError}");
             messageBus.SendMessage(new AdminNotification("Block submission failed", $"Pool {poolConfig.Id} {(!string.IsNullOrEmpty(share.Source) ? $"[{share.Source.ToUpper()}] " : string.Empty)}failed to submit block {share.BlockHeight}: {submitError}"));
+
+            // Save the rejected block for analysis
+            try
+            {
+                var rejectedBlocksDir = Path.Combine(
+                    Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location),
+                    "rejected-blocks");
+
+                if (!Directory.Exists(rejectedBlocksDir))
+                    Directory.CreateDirectory(rejectedBlocksDir);
+
+                var rejectedBlockPath = Path.Combine(
+                    rejectedBlocksDir,
+                    $"rejected-block-{share.PoolId}-{share.BlockHeight}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.hex");
+
+                File.WriteAllText(rejectedBlockPath, blockHex);
+                logger.Warn(() => $"Saved rejected block to: {rejectedBlockPath}");
+
+                // Also save rejection details
+                var rejectionDetailsPath = Path.Combine(
+                    rejectedBlocksDir,
+                    $"rejected-block-{share.PoolId}-{share.BlockHeight}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.txt");
+
+                File.WriteAllText(rejectionDetailsPath,
+                    $"Block Height: {share.BlockHeight}\n" +
+                    $"Block Hash: {share.BlockHash}\n" +
+                    $"Pool: {poolConfig.Id}\n" +
+                    $"Source: {share.Source}\n" +
+                    $"Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}\n" +
+                    $"Error: {submitError}");
+
+                logger.Warn(() => $"Saved rejection details to: {rejectionDetailsPath}");
+            }
+            catch(Exception ex)
+            {
+                logger.Error(() => $"Error saving rejected block: {ex.Message}");
+            }
+
             return new SubmitResult(false, null);
         }
 
@@ -458,10 +496,13 @@ public abstract class BitcoinJobManagerBase<TJob> : JobManagerBase<TJob>
         var addressInfoResponse = responses[4].Error == null ? responses[4].Response.ToObject<AddressInfo>() : null;
 
         // chain detection
+        /*
         if(!hasLegacyDaemon)
             network = Network.GetNetwork(blockchainInfoResponse.Chain.ToLower());
         else
             network = daemonInfoResponse.Testnet ? Network.TestNet : Network.Main;
+        */
+        network = Network.Main;
 
         PostChainIdentifyConfigure();
 

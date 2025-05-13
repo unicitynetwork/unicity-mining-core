@@ -58,6 +58,33 @@ public class AdminApiController : ApiControllerBase
         return await cf.Run(con => balanceRepo.GetBalanceAsync(con, poolId, address));
     }
 
+    /// <summary>
+    /// Gets a list of pending payments for a specific pool.
+    /// Used for Alpha external payment processing.
+    /// </summary>
+    [HttpGet("pools/{poolId}/payments/pending")]
+    public async Task<Responses.GetPendingPaymentsResponse> GetPendingPaymentsAsync(string poolId)
+    {
+        var pool = GetPool(poolId);
+
+        // Get all payment records with empty transaction confirmation data
+        var pendingPayments = await cf.Run(con => paymentsRepo.GetPendingPaymentsAsync(con, pool.Id));
+
+        var response = new Responses.GetPendingPaymentsResponse
+        {
+            PoolId = pool.Id,
+            Payments = pendingPayments.Select(payment => new Responses.PendingPayment
+            {
+                Address = payment.Address,
+                Amount = payment.Amount,
+                CreatedUtc = payment.Created
+            }).ToArray()
+        };
+
+        return response;
+    }
+
+
     [HttpGet("pools/{poolId}/miners/{address}/settings")]
     public async Task<Responses.MinerSettings> GetMinerSettingsAsync(string poolId, string address)
     {

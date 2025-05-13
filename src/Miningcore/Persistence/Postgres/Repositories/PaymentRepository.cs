@@ -124,4 +124,15 @@ public class PaymentRepository : IPaymentRepository
 
         return con.ExecuteScalarAsync<uint>(query.ToString(), new { poolId, address });
     }
+
+    public async Task<Payment[]> GetPendingPaymentsAsync(IDbConnection con, string poolId)
+    {
+        const string query = @"SELECT * FROM payments
+            WHERE poolid = @poolId AND transactionconfirmationdata = ''
+            ORDER BY created ASC";
+
+        return (await con.QueryAsync<Entities.Payment>(query, new { poolId }))
+            .Select(mapper.Map<Payment>)
+            .ToArray();
+    }
 }

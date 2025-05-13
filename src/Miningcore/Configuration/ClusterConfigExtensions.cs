@@ -75,6 +75,10 @@ public partial class BitcoinTemplate
     {
         var hash = HeaderHasherValue;
 
+        // Handle null headerHasher (used for coins like Alpha that use RandomX)
+        if (hash == null)
+            return "randomx";
+            
         if(hash.GetType() == typeof(DigestReverser))
             return ((DigestReverser) hash).Upstream.GetType().Name;
 
