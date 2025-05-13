@@ -15,4 +15,9 @@ public interface IPaymentRepository
     Task<uint> GetPaymentsCountAsync(IDbConnection con, string poolId, string address, CancellationToken ct);
     Task<uint> GetMinerPaymentsByDayCountAsync(IDbConnection con, string poolId, string address);
     Task<uint> GetBalanceChangesCountAsync(IDbConnection con, string poolId, string address = null);
+
+    /// <summary>
+    /// Returns pending payments (empty transaction confirmation data) for a specific pool
+    /// </summary>
+    Task<Payment[]> GetPendingPaymentsAsync(IDbConnection con, string poolId);
 }

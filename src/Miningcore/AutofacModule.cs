@@ -23,6 +23,7 @@ using Microsoft.IO;
 using Miningcore.Blockchain.Ergo;
 using Miningcore.Nicehash;
 using Miningcore.Pushover;
+using Miningcore.Blockchain.Alpha;
 
 namespace Miningcore;
 
@@ -147,6 +148,13 @@ public class AutofacModule : Module
         // Bitcoin and family
 
         builder.RegisterType<BitcoinJobManager>();
+
+
+
+        //////////////////////
+        // Alpha
+        builder.RegisterType<AlphaJobManager>();
+        builder.RegisterType<AlphaPayoutHandler>();
 
         //////////////////////
         // Cryptonote

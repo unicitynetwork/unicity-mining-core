@@ -14,11 +14,13 @@ using NBitcoin.DataEncoders;
 using Newtonsoft.Json.Linq;
 using Contract = Miningcore.Contracts.Contract;
 using Transaction = NBitcoin.Transaction;
+using NLog;
 
 namespace Miningcore.Blockchain.Bitcoin;
 
 public class BitcoinJob
 {
+    private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
     protected IHashAlgorithm blockHasher;
     protected IMasterClock clock;
     protected IHashAlgorithm coinbaseHasher;
@@ -58,7 +60,7 @@ public class BitcoinJob
 
     protected static uint txInputCount = 1u;
     protected static uint txInPrevOutIndex = (uint) (Math.Pow(2, 32) - 1);
-    protected static uint txInSequence;
+    protected static uint txInSequence = 0xFFFFFFFF; // Set to 0xFFFFFFFF to match standard Bitcoin protocol
     protected static uint txLockTime;
 
     protected virtual void BuildMerkleBranches()
@@ -136,6 +138,7 @@ public class BitcoinJob
 
             // misc
             bs.ReadWrite(ref txLockTime);
+            logger.Debug(() => $"BuildCoinbase: Added txLockTime=0x{txLockTime:X8}");
 
             // Extension point
             AppendCoinbaseFinal(bs);
@@ -380,6 +383,9 @@ public class BitcoinJob
         var extraNonce1Bytes = extraNonce1.HexToByteArray();
         var extraNonce2Bytes = extraNonce2.HexToByteArray();
 
+        // Add debug logging
+        logger.Debug(() => $"SerializeCoinbase: coinbaseInitial length={coinbaseInitial?.Length ?? 0}, extraNonce1={extraNonce1}, extraNonce2={extraNonce2}, coinbaseFinal length={coinbaseFinal?.Length ?? 0}");
+
         using(var stream = new MemoryStream())
         {
             stream.Write(coinbaseInitial);
@@ -387,7 +393,33 @@ public class BitcoinJob
             stream.Write(extraNonce2Bytes);
             stream.Write(coinbaseFinal);
 
-            return stream.ToArray();
+            var result = stream.ToArray();
+
+            // Verify transaction format
+            if (result.Length >= 4)
+            {
+                var locktime = BitConverter.ToUInt32(result, result.Length - 4);
+                logger.Debug(() => $"SerializeCoinbase: Final TX size={result.Length} bytes, locktime=0x{locktime:X8}");
+
+                // Check if we have sequence value at the expected position (depends on scriptSig length)
+                if (result.Length > 50)
+                {
+                    int scriptLenPos = 41; // Position of script length byte
+                    byte scriptLen = result[scriptLenPos];
+                    int scriptEndPos = scriptLenPos + 1 + scriptLen;
+                    if (scriptEndPos + 4 <= result.Length)
+                    {
+                        uint sequence = BitConverter.ToUInt32(result, scriptEndPos);
+                        logger.Debug(() => $"SerializeCoinbase: Sequence value=0x{sequence:X8}");
+                    }
+                }
+            }
+            else
+            {
+                logger.Warn(() => $"SerializeCoinbase: Generated TX is too short ({result.Length} bytes), missing locktime!");
+            }
+
+            return result;
         }
     }
 

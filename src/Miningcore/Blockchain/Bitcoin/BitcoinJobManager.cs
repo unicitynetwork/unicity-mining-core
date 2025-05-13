@@ -27,7 +27,7 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
     {
     }
 
-    private BitcoinTemplate coin;
+    protected BitcoinTemplate coin;
 
     protected override object[] GetBlockTemplateParams()
     {
