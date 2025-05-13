@@ -1,0 +1,17 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build-miningcore",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "build",
+          "${workspaceFolder}/src/Miningcore/Miningcore.csproj",
+          "-c",
+          "Debug"
+        ],
+        "problemMatcher": "$msCompile"
+      }
+    ]
+  }

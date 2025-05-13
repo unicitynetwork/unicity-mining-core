@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": ".NET Core Launch (Miningcore)",
+        "type": "coreclr",
+        "request": "launch",
+        "preLaunchTask": "build-miningcore",
+        "program": "${workspaceFolder}/src/Miningcore/bin/Debug/net6.0/Miningcore.dll",
+        "args": [
+          "--config",
+          "${workspaceFolder}/config.json"
+        ],
+        "cwd": "${workspaceFolder}",
+        "console": "integratedTerminal",
+        "stopAtEntry": false
+      }
+    ]
+  }
