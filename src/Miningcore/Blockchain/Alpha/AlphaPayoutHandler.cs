@@ -153,6 +153,9 @@ namespace Miningcore.Blockchain.Alpha
                         block.Status = BlockStatus.Confirmed;
                         block.ConfirmationProgress = 1;
                         
+                        // Set reward for Alpha blocks (10 coins per block)
+                        block.Reward = 10.0m;
+                        
                         logger.Info(() => $"[{LogCategory}] Unlocked block {block.BlockHeight} worth {FormatAmount(block.Reward)}");
                         
                         messageBus.NotifyBlockUnlocked(poolConfig.Id, block, coin);
