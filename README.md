@@ -1,5 +1,109 @@
 Fork of https://github.com/oliverw/miningcore/ to support Unicity Proof of Work 
 
+## Unicity Proof of Work Implementation
+
+This fork builds on Miningcore into a **Unicity Proof of Work** mining pool with comprehensive support for the Unicity Consensus Layer Blockchain.
+
+###  Core Technical Changes
+
+**Complete Alpha Blockchain Implementation**
+
+- **112-byte Headers**: Extended from Bitcoin's 80 bytes to include RandomX hash field
+- **Epoch-Based Seeds**: Dynamic RandomX key generation using `Alpha/RandomX/Epoch/{epoch}`
+- **Custom Difficulty Algorithm**: Matches Alpha daemon's exact calculation
+
+**RandomX Native Integration**
+
+- **VM Pool Management**: Thread-safe RandomX VM borrowing/returning with realm isolation
+- **Memory Optimization**: Efficient VM reuse and cache management (256MB-3GB per VM)
+- **CPU Optimization**: Hardware-specific compilation with AES/AVX/SSE flags
+- **Commitment Hash Calculation**: New `randomx_calculate_commitment()` function
+
+**Extended Block Structure**
+
+```
+Alpha Block: StandardHeader(80) + RandomXHash(32) + TransactionData
+Bitcoin Block: StandardHeader(80) + TransactionData
+```
+
+**Custom Address Format**
+
+- Native "alpha1" Bech32 addresses with custom HRP
+- Full address validation and destination resolution
+
+###  Build System Enhancements
+
+**Automated RandomX Building**
+
+- Downloads and compiles Unicity's RandomX fork from `github.com/unicitynetwork/RandomX`
+- Cross-platform support (Linux compilation, Windows pre-built libraries)
+- CPU feature detection and optimization
+
+**Enhanced Project Structure**
+
+```
+src/
+├── Miningcore/Blockchain/Alpha/     # Alpha blockchain implementation
+├── Miningcore/Native/RandomX.cs     # RandomX P/Invoke interface
+├── Native/librandomx/              # RandomX native library
+└── Miningcore/coins.json           # Alpha coin definition
+```
+
+### ⚙️ Configuration & Deployment
+
+**Alpha Coin Configuration**
+
+```json
+{
+    "alpha": {
+        "name": "Alpha",
+        "family": "bitcoin",
+        "headerHasher": null,
+        "blockHasher": {"hash": "sha256d"},
+        "bech32Hrp": "alpha",
+        "hashrateMultiplier": 0.0625,
+        "blockTime": 120
+    }
+}
+```
+
+**Pool Configuration Features**
+
+- **Fixed Block Rewards**: 10 ALPHA per block
+- **External Payment Processing**: Queued payments for distributed processing
+- **Blockchain-Level Operations**: No local wallet dependency required
+- **ZeroMQ Integration**: Real-time block notifications
+
+### Performance & Scalability
+
+**Memory Management**
+
+- RandomX VM pooling with automatic cleanup
+- Configurable VM count per realm
+- Memory-hard hashing for ASIC resistance
+
+**Production Ready**
+
+- Full Stratum protocol compatibility
+- Live stats API and WebSocket notifications
+- Comprehensive logging and monitoring
+- PostgreSQL persistence with partitioned tables
+
+### 📋 Development Requirements
+
+**Additional Dependencies for Unicity**
+
+- CMake (for RandomX compilation)
+- CPU with AES-NI support (recommended)
+- Sufficient RAM for RandomX VMs (256MB+ per VM)
+
+**Runtime Requirements**
+
+- Alpha daemon with `rx_epoch_duration` support
+- ZeroMQ for block notifications
+- PostgreSQL for production persistence
+
+***********************************
 
 ### Features
 
