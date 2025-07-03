@@ -419,6 +419,7 @@ public class AlphaJob : BitcoinJob
         if(isBlockCandidate)
         {
             result.IsBlockCandidate = true;
+            result.BlockReward = rewardToPool.ToDecimal(MoneyUnit.BTC);
 
             var fullHeaderBytes = BuildBlockHeaderBytes(worker, extraNonce2, nTime, nonce, versionBits, headerHashRandomX.ToArray());
             var coinbaseTxBytes = SerializeCoinbase(extraNonce1, extraNonce2);
