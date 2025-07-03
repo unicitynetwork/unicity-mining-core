@@ -1,0 +1,152 @@
+{
+    "logging": {
+        "level": "debug",
+        "enableConsoleLog": true,
+        "enableConsoleColors": true,
+        "logFile": "alpha-pool.log",
+        "apiLogFile": "alpha-api.log",
+        "logBaseDirectory": "logs",
+        "perPoolLogFile": true
+    },
+    "banning": {
+        "manager": "Integrated",
+        "banOnJunkReceive": true,
+        "banOnInvalidShares": false
+    },
+    "notifications": {
+        "enabled": false,
+        "email": {
+            "host": "smtp.example.com",
+            "port": 587,
+            "user": "user",
+            "password": "password",
+            "fromAddress": "alpha-pool@unicity-pool.com",
+            "fromName": "Alpha Pool"
+        },
+        "admin": {
+            "enabled": false,
+            "emailAddress": "admin@example.com",
+            "notifyBlockFound": true
+        }
+    },
+    "persistence": {
+        "postgres": {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "user": "miningcore",
+            "password": "POSTGRES_PASSWORD",
+            "database": "miningcore"
+        }
+    },
+    "paymentProcessing": {
+        "enabled": true,
+        "interval": 600,
+        "shareRecoveryFile": "recovered-shares.txt"
+    },
+    "api": {
+        "enabled": true,
+        "listenAddress": "127.0.0.1",
+        "port": 4000,
+        "adminIpWhitelist": ["127.0.0.1"],
+        "metricsIpWhitelist": [],
+        "rateLimiting": {
+            "disabled": false,
+            "rules": [
+                {
+                    "Endpoint": "*",
+                    "Period": "1s",
+                    "Limit": 5
+                }
+            ],
+            "ipWhitelist": ["0.0.0.0/0"]
+        }
+    },
+    "pools": [
+        {
+            "id": "alpha1",
+            "enabled": true,
+            "coin": "alpha",
+            "address": "YOUR_POOL_ADDRESS_HERE",
+            "rewardRecipients": [
+                {
+                    "address": "YOUR_POOL_ADDRESS_HERE",
+                    "percentage": 10.
+                }
+            ],
+            "blockRefreshInterval": 300,
+            "jobRebroadcastTimeout": 45,
+            "clientConnectionTimeout": 600,
+            "banning": {
+                "enabled": true,
+                "time": 600,
+                "invalidPercent": 50,
+                "checkThreshold": 50
+            },
+            "AddressType": "BechSegwit",
+            "extra": {
+                "useSingleInputUtxo": true,
+                "changeAddress": "YOUR_POOL_ADDRESS_HERE",
+                "maxOutputsPerTx": 50
+            },
+            "ports": {
+                "3052": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.1,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.01,
+                        "maxDiff": null,
+                        "targetTime": 30,
+                        "retargetTime": 90,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                },
+                "3053": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.002,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.05,
+                        "maxDiff": null,
+                        "targetTime": 30,
+                        "retargetTime": 90,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                },
+                "3054": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.001,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.00002,
+                        "maxDiff": null,
+                        "targetTime": 30,
+                        "retargetTime": 90,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                }
+            },
+            "daemons": [
+                {
+                    "host": "127.0.0.1",
+                    "port": 8589,
+                    "user": "RPC_USERNAME",
+                    "password": "RPC_PASSWORD",
+                    "type": "json-rpc",
+                    "zmqBlockNotifySocket": "tcp://127.0.0.1:15101"
+                }
+            ],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PROP",
+                "payoutSchemeConfig": {
+                }
+            }
+        }
+    ]
+}
+
