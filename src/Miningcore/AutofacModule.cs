@@ -66,6 +66,14 @@ public class AutofacModule : Module
             .Keyed<IBanManager>(BanManagerKind.Integrated)
             .SingleInstance();
 
+        // Register AlphaPayoutHandler with priority for Bitcoin family
+        builder.RegisterType<AlphaPayoutHandler>()
+            .AsSelf()
+            .As<IPayoutHandler>()
+            .WithMetadata<CoinFamilyAttribute>(m => 
+                m.For(am => am.SupportedFamilies, new[] { CoinFamily.Bitcoin }))
+            .PreserveExistingDefaults();
+
         builder.RegisterAssemblyTypes(ThisAssembly)
             .Where(t => t.GetCustomAttributes<CoinFamilyAttribute>().Any() && t.GetInterfaces()
                 .Any(i =>
@@ -154,7 +162,7 @@ public class AutofacModule : Module
         //////////////////////
         // Alpha
         builder.RegisterType<AlphaJobManager>();
-        builder.RegisterType<AlphaPayoutHandler>();
+        // AlphaPayoutHandler is already registered above with priority
 
         //////////////////////
         // Cryptonote
