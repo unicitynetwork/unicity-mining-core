@@ -84,6 +84,36 @@ public class AdminApiController : ApiControllerBase
         return response;
     }
 
+    /// <summary>
+    /// Marks a payment as completed with transaction confirmation data.
+    /// Used for Alpha external payment processing.
+    /// </summary>
+    [HttpPost("pools/{poolId}/payments/complete")]
+    public async Task<IActionResult> CompletePaymentAsync(string poolId, [FromBody] Requests.CompletePaymentRequest request)
+    {
+        var pool = GetPool(poolId);
+
+        // Validate request
+        if (string.IsNullOrEmpty(request.Address) || request.Amount <= 0 || string.IsNullOrEmpty(request.TransactionId))
+        {
+            throw new ApiException("Invalid payment completion request", HttpStatusCode.BadRequest);
+        }
+
+        // Update payment with transaction confirmation data
+        var updated = await cf.RunTx(async (con, tx) =>
+        {
+            return await paymentsRepo.CompletePaymentAsync(con, tx, pool.Id, request.Address, request.Amount, request.TransactionId);
+        });
+
+        if (!updated)
+        {
+            throw new ApiException("Payment not found or already completed", HttpStatusCode.NotFound);
+        }
+
+        logger.Info(() => $"Marked payment as completed: {request.Address} = {request.Amount} {pool.Template.Symbol}, TxId: {request.TransactionId}");
+
+        return Ok(new { Status = "Completed", TransactionId = request.TransactionId });
+    }
 
     [HttpGet("pools/{poolId}/miners/{address}/settings")]
     public async Task<Responses.MinerSettings> GetMinerSettingsAsync(string poolId, string address)
