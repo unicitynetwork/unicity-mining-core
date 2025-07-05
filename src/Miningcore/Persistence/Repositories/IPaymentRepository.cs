@@ -20,4 +20,9 @@ public interface IPaymentRepository
     /// Returns pending payments (empty transaction confirmation data) for a specific pool
     /// </summary>
     Task<Payment[]> GetPendingPaymentsAsync(IDbConnection con, string poolId);
+
+    /// <summary>
+    /// Marks a payment as completed by updating transaction confirmation data
+    /// </summary>
+    Task<bool> CompletePaymentAsync(IDbConnection con, IDbTransaction tx, string poolId, string address, decimal amount, string transactionId);
 }
