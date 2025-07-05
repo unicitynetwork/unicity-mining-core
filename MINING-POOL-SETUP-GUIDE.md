@@ -37,8 +37,12 @@ sudo dpkg -i packages-microsoft-prod.deb
 sudo apt update
 sudo apt install -y dotnet-sdk-6.0
 
-# Install PostgreSQL
-sudo apt install -y postgresql postgresql-contrib
+# Fix common .NET installation path issue
+sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
+
+# Verify .NET installation
+dotnet --version
+
 ```
 
 <a id="system-requirements"></a>
@@ -120,7 +124,14 @@ The PaymentProcessor can be run on the separate wallet machine and connect to th
 <a id="database-setup"></a>
 ## Database Setup
 
-### 1. Configure PostgreSQL
+### 1. Install PostgreSQL
+```bash
+# Install PostgreSQL
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
+```
+
+### 2. Configure PostgreSQL
 ```bash
 # Start PostgreSQL service
 sudo systemctl start postgresql
@@ -135,14 +146,22 @@ GRANT ALL PRIVILEGES ON DATABASE miningcore TO miningcore;
 EOF
 ```
 
-### 2. Import Database Schema
+### 3. Import Database Schema
 ```bash
-# Clone Miningcore repository
+# Clone Miningcore repository (if not already done)
 git clone https://github.com/unicitynetwork/unicity-mining-core.git
+
+# Change to the repository directory
 cd unicity-mining-core
 
+# Copy SQL file to accessible location for postgres user
+cp src/Miningcore/Persistence/Postgres/Scripts/createdb.sql /tmp/
+
 # Import database schema
-sudo -u postgres psql -d miningcore -f src/Miningcore/Persistence/Postgres/Scripts/createdb.sql
+sudo -u postgres psql -d miningcore -f /tmp/createdb.sql
+
+# Clean up temporary file
+rm /tmp/createdb.sql
 ```
 
 <a id="miningcore-pool-server-setup"></a>
@@ -191,7 +210,7 @@ Create `config.json` in the root directory:
     "logBaseDirectory": "logs"
   },
   "banning": {
-    "manager": "integrated",
+    "manager": "Integrated",
     "banOnJunkReceive": true,
     "banOnInvalidShares": false
   },
@@ -356,7 +375,7 @@ The Unicity mining pool frontend is a **static HTML/CSS/JavaScript application**
 - **Bootstrap** - CSS framework for responsive design  
 - **JavaScript** - Client-side functionality and API calls
 - **Chart.js** - Statistics visualization
-- **WebSocket** - Real-time updates from pool API
+- **Periodic polling** - Regular API updates for statistics
 
 ### 3. Configure Frontend
 
@@ -447,17 +466,6 @@ server {
         proxy_read_timeout 60s;
     }
 
-    # WebSocket for real-time notifications
-    location /notifications {
-        proxy_pass http://127.0.0.1:4000/notifications;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
 
     # Optional: You might want to deny access to hidden files like .htaccess or .git
     location ~ /\. {
@@ -535,7 +543,7 @@ The mining pool frontend includes:
 
 **API Integration:**
 
-- Real-time statistics via WebSocket
+- Periodic statistics updates via API polling
 - RESTful API for historical data
 - Payment notifications
 - Block notifications
@@ -562,8 +570,8 @@ The mining pool frontend includes:
 # Test API connectivity
 curl https://your-pool-domain.com/api/pools
 
-# Test WebSocket connection (using websocat if installed)
-websocat wss://your-pool-domain.com/notifications
+# Test frontend access
+curl -I https://your-pool-domain.com
 ```
 
 <a id="paymentprocessor-setup-separate-machine-any-os"></a>
@@ -742,7 +750,7 @@ This guide walks you through setting up a complete, production-ready Unicity Alp
 - **PostgreSQL Database** - Pool statistics, shares, and payment tracking
 - **Miningcore Server** - Mining pool core with Stratum protocol (ports 3052-3054)
 - **Web Frontend** - Static HTML/CSS/JS interface for miners
-- **Nginx Web Server** - HTTPS, security headers, API proxy, WebSocket support
+- **Nginx Web Server** - HTTPS, security headers, API proxy
 
 **Payment Machine (Any OS):**
 - **Alpha Wallet** - Secure fund storage and transaction signing
@@ -752,7 +760,7 @@ This guide walks you through setting up a complete, production-ready Unicity Alp
 
 - **Multi-port Stratum mining** with variable difficulty adjustment
 - **PROP payment scheme** for fair reward distribution
-- **Real-time statistics** via WebSocket notifications
+- **Regular statistics updates** via API polling
 - **Secure API** with key-based authentication
 - **Production security** with HTTPS, security headers, and firewall rules
 - **Automated payments** processed from separate secured machine
