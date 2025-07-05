@@ -208,6 +208,7 @@ public class Program : BackgroundService
                             app.UseIpRateLimiting();
 
                         app.UseMiddleware<ApiExceptionHandlingMiddleware>();
+                        app.UseMiddleware<ApiKeyAuthenticationMiddleware>();
 
                         UseIpWhiteList(app, true, new[]
                         {

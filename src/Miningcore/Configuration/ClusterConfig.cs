@@ -840,6 +840,11 @@ public partial class ApiConfig
     public int? MetricsPort { get; set; }
 
     /// <summary>
+    /// API keys for external payment processor authentication
+    /// </summary>
+    public string[] AdminApiKeys { get; set; }
+
+    /// <summary>
     /// Restricts access to the admin API to these IP addresses
     /// If this list null or empty, the default is 127.0.0.1
     /// </summary>
