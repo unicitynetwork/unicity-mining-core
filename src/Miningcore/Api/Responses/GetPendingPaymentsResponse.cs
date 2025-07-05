@@ -10,6 +10,7 @@ public class GetPendingPaymentsResponse
 
 public class PendingPayment
 {
+    public long Id { get; set; }
     public string Address { get; set; }
     public decimal Amount { get; set; }
     public DateTime CreatedUtc { get; set; }

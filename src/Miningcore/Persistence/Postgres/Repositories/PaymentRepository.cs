@@ -136,16 +136,15 @@ public class PaymentRepository : IPaymentRepository
             .ToArray();
     }
 
-    public async Task<bool> CompletePaymentAsync(IDbConnection con, IDbTransaction tx, string poolId, string address, decimal amount, string transactionId)
+    public async Task<bool> CompletePaymentAsync(IDbConnection con, IDbTransaction tx, string poolId, long paymentId, string transactionId)
     {
         const string query = @"UPDATE payments 
             SET transactionconfirmationdata = @transactionId
             WHERE poolid = @poolId 
-            AND address = @address 
-            AND amount = @amount 
+            AND id = @paymentId 
             AND transactionconfirmationdata = ''";
 
-        var rowsAffected = await con.ExecuteAsync(query, new { poolId, address, amount, transactionId }, tx);
+        var rowsAffected = await con.ExecuteAsync(query, new { poolId, paymentId, transactionId }, tx);
         return rowsAffected > 0;
     }
 }

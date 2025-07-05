@@ -24,5 +24,5 @@ public interface IPaymentRepository
     /// <summary>
     /// Marks a payment as completed by updating transaction confirmation data
     /// </summary>
-    Task<bool> CompletePaymentAsync(IDbConnection con, IDbTransaction tx, string poolId, string address, decimal amount, string transactionId);
+    Task<bool> CompletePaymentAsync(IDbConnection con, IDbTransaction tx, string poolId, long paymentId, string transactionId);
 }

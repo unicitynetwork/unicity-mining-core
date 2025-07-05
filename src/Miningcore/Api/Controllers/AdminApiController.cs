@@ -75,6 +75,7 @@ public class AdminApiController : ApiControllerBase
             PoolId = pool.Id,
             Payments = pendingPayments.Select(payment => new Responses.PendingPayment
             {
+                Id = payment.Id,
                 Address = payment.Address,
                 Amount = payment.Amount,
                 CreatedUtc = payment.Created
@@ -94,7 +95,7 @@ public class AdminApiController : ApiControllerBase
         var pool = GetPool(poolId);
 
         // Validate request
-        if (string.IsNullOrEmpty(request.Address) || request.Amount <= 0 || string.IsNullOrEmpty(request.TransactionId))
+        if (request.PaymentId <= 0 || string.IsNullOrEmpty(request.TransactionId))
         {
             throw new ApiException("Invalid payment completion request", HttpStatusCode.BadRequest);
         }
@@ -102,7 +103,7 @@ public class AdminApiController : ApiControllerBase
         // Update payment with transaction confirmation data
         var updated = await cf.RunTx(async (con, tx) =>
         {
-            return await paymentsRepo.CompletePaymentAsync(con, tx, pool.Id, request.Address, request.Amount, request.TransactionId);
+            return await paymentsRepo.CompletePaymentAsync(con, tx, pool.Id, request.PaymentId, request.TransactionId);
         });
 
         if (!updated)
@@ -110,9 +111,9 @@ public class AdminApiController : ApiControllerBase
             throw new ApiException("Payment not found or already completed", HttpStatusCode.NotFound);
         }
 
-        logger.Info(() => $"Marked payment as completed: {request.Address} = {request.Amount} {pool.Template.Symbol}, TxId: {request.TransactionId}");
+        logger.Info(() => $"Marked payment {request.PaymentId} as completed, TxId: {request.TransactionId}");
 
-        return Ok(new { Status = "Completed", TransactionId = request.TransactionId });
+        return Ok(new { Status = "Completed", PaymentId = request.PaymentId, TransactionId = request.TransactionId });
     }
 
     [HttpGet("pools/{poolId}/miners/{address}/settings")]
