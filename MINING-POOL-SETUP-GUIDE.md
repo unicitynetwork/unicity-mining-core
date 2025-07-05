@@ -252,6 +252,7 @@ Create `config.json` in the root directory:
         "invalidPercent": 50,
         "checkThreshold": 50
       },
+      "AddressType": "BechSegwit",
       "ports": {
         "3052": {
           "listenAddress": "0.0.0.0",
@@ -327,6 +328,7 @@ Create `config.json` in the root directory:
 
 - **paymentProcessing.enabled: false** - Automatic payments disabled (using external PaymentProcessor)
 - **payoutScheme: "PROP"** - Proportional payment scheme (fair distribution based on submitted shares)
+- **AddressType: "BechSegwit"** - Required for Alpha Bech32 addresses (alpha1... format)
 - **rewardRecipients: []** - Pool fee recipients (empty = no pool fees)
   - Example with 2% pool fee: `[{"address": "alpha1q...", "percentage": 2.0}]`
 - **minimumPayment: 1.0** - Minimum payout amount in ALPHA before payment is sent to miners
