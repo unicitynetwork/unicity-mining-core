@@ -22,6 +22,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.IO;
 using Miningcore.Api;
 using Miningcore.Api.Controllers;
+using Miningcore.Api.Middleware;
 using Miningcore.Api.Middlewares;
 using Miningcore.Api.Responses;
 using Miningcore.Configuration;
