@@ -368,11 +368,16 @@ public class AlphaRpcClient : IAlphaRpcClient
         var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
         var rpcResponse = JsonSerializer.Deserialize<RpcResponse<T>>(responseJson, _jsonOptions);
 
-        if (rpcResponse?.Error != null)
+        if (rpcResponse == null)
+        {
+            throw new InvalidOperationException("Failed to deserialize RPC response");
+        }
+
+        if (rpcResponse.Error != null)
         {
             throw new InvalidOperationException($"RPC Error {rpcResponse.Error.Code}: {rpcResponse.Error.Message}");
         }
 
-        return rpcResponse.Result;
+        return rpcResponse.Result ?? throw new InvalidOperationException("RPC response result is null");
     }
 }

@@ -720,8 +720,8 @@ Create `src/PaymentProcessor/appsettings.json`:
 - **RpcUrl** - Local Alpha daemon on payment machine (always localhost:8589)
 - **DataDir** - Alpha blockchain data directory path
 - **WalletName** - Wallet containing pool funds ("pool_wallet")
-- **WalletAddress** - Leave empty (auto-detected from wallet)
-- **ChangeAddress** - Address for transaction change (prevents address reuse)
+- **WalletAddress** - Primary address from your pool wallet (used for payments)
+- **ChangeAddress** - Address for transaction change (recommend using pool address)
 - **FeePerByte** - Transaction fee rate (0.00001 ALPHA recommended)
 - **ConfirmationsRequired** - UTXOs must have this many confirmations (1 = faster payments)
 - **UseWalletRPC** - Always true (use wallet for signing transactions)
