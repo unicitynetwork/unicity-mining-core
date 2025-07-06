@@ -205,4 +205,4 @@ fabric.properties
 # End of https://www.toptal.com/developers/gitignore/api/rider
 .idea
 
-.fake
+.fakesrc/PaymentProcessor/appsettings.json
