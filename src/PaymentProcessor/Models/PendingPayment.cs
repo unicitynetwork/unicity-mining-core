@@ -21,4 +21,9 @@ public record PaymentProcessingResult
     public bool Success { get; init; }
     public string? Error { get; init; }
     public string? TransactionId { get; init; }
+    
+    // Fields for tracking partial payments
+    public bool IsPartialPayment { get; init; }
+    public decimal CompletedAmount { get; init; }
+    public List<string> AllTransactionIds { get; init; } = new();
 }

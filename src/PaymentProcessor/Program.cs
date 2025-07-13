@@ -12,6 +12,13 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        // Run test instead of normal application
+        if (args.Length > 0 && args[0] == "test")
+        {
+            await TestMain.TestPaymentProcessorAsync();
+            return;
+        }
+
         // Initialize Serilog early
         var configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
@@ -61,6 +68,7 @@ class Program
                 services.AddHttpClient<AlphaRpcClient>();
                 services.AddSingleton<IAlphaRpcClient, AlphaRpcClient>();
                 services.AddSingleton<IConsoleService, ConsoleService>();
+                services.AddSingleton<IPaymentCompletionTracker, FilePaymentCompletionTracker>();
                 services.AddSingleton<IAlphaPaymentService, AlphaPaymentService>();
                 services.AddSingleton<IPaymentProcessor, Services.PaymentProcessor>();
                 services.AddSingleton<PaymentProcessorApp>();
