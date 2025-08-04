@@ -17,5 +17,9 @@ public interface IAlphaRpcClient
     Task<TransactionInfo> GetTransactionAsync(string txId, CancellationToken cancellationToken = default);
     Task<bool> ValidateAddressAsync(string address, CancellationToken cancellationToken = default);
     Task<string> GetNewAddressAsync(CancellationToken cancellationToken = default);
+    Task<decimal> GetTotalSentToAddressAsync(string address, CancellationToken cancellationToken = default);
+    Task<BlockInfo> GetBlockInfoAsync(string blockHash, CancellationToken cancellationToken = default);
+    Task<string> GetBestBlockHashAsync(CancellationToken cancellationToken = default);
+    Task<int> GetBlockCountAsync(CancellationToken cancellationToken = default);
     void SetWallet(string walletName);
 }

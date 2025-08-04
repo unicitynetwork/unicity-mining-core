@@ -71,6 +71,7 @@ class Program
                 services.AddSingleton<IPaymentCompletionTracker, FilePaymentCompletionTracker>();
                 services.AddSingleton<IAlphaPaymentService, AlphaPaymentService>();
                 services.AddSingleton<IPaymentProcessor, Services.PaymentProcessor>();
+                services.AddSingleton<IAutomatedPaymentService, AutomatedPaymentService>();
                 services.AddSingleton<PaymentProcessorApp>();
             })
             .UseSerilog();

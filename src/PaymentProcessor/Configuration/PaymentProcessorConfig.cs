@@ -7,6 +7,7 @@ public class PaymentProcessorConfig
     public string ApiKey { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 30;
     public AlphaDaemonConfig AlphaDaemon { get; set; } = new();
+    public AutomationConfig Automation { get; set; } = new();
 }
 
 public class AlphaDaemonConfig
@@ -23,4 +24,14 @@ public class AlphaDaemonConfig
     public decimal FeePerByte { get; set; } = 0.00001m;
     public int ConfirmationsRequired { get; set; } = 1;
     public bool UseWalletRPC { get; set; } = true;
+}
+
+public class AutomationConfig
+{
+    public bool Enabled { get; set; } = false;
+    public int BatchSize { get; set; } = 10;
+    public int BlockPeriod { get; set; } = 1;
+    public bool ShowWalletBalance { get; set; } = true;
+    public int PollingIntervalSeconds { get; set; } = 30;
+    public decimal MinimumBalance { get; set; } = 1.0m;
 }

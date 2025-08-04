@@ -87,3 +87,15 @@ public record WalletInfo
     public bool Unlocked { get; init; }
     public List<string> Addresses { get; init; } = new();
 }
+
+public record BlockInfo
+{
+    public string Hash { get; init; } = string.Empty;
+    public int Height { get; init; }
+    public DateTime Time { get; init; }
+    public string PreviousBlockHash { get; init; } = string.Empty;
+    public string NextBlockHash { get; init; } = string.Empty;
+    public int TxCount { get; init; }
+    public long Size { get; init; }
+    public decimal Difficulty { get; init; }
+}

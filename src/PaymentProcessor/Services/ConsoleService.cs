@@ -1,3 +1,4 @@
+using PaymentProcessor.Configuration;
 using PaymentProcessor.Models;
 using Spectre.Console;
 
@@ -212,5 +213,34 @@ public class ConsoleService : IConsoleService
     public void DisplayInfo(string message)
     {
         AnsiConsole.MarkupLine($"[blue]Info: {message}[/]");
+    }
+
+    public bool PromptForAutomationMode()
+    {
+        return AnsiConsole.Prompt(
+            new SelectionPrompt<bool>()
+                .Title("Select processing mode:")
+                .AddChoices(false, true)
+                .UseConverter(choice => choice ? "Automated (batch processing every N blocks)" : "Manual (interactive selection)"));
+    }
+
+    public void DisplayAutomationConfig(AutomationConfig config)
+    {
+        var table = new Table()
+            .BorderColor(Color.Blue)
+            .Border(TableBorder.Rounded)
+            .Title("[bold blue]Automation Configuration[/]")
+            .AddColumn("[bold]Setting[/]")
+            .AddColumn("[bold]Value[/]");
+
+        table.AddRow("Enabled", config.Enabled ? "[green]Yes[/]" : "[red]No[/]");
+        table.AddRow("Batch Size", config.BatchSize.ToString());
+        table.AddRow("Block Period", config.BlockPeriod.ToString());
+        table.AddRow("Polling Interval", $"{config.PollingIntervalSeconds}s");
+        table.AddRow("Minimum Balance", $"{config.MinimumBalance:F8} ALPHA");
+        table.AddRow("Show Wallet Balance", config.ShowWalletBalance ? "[green]Yes[/]" : "[red]No[/]");
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
     }
 }

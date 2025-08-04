@@ -11,6 +11,7 @@ public class PaymentProcessorApp
     private readonly IConsoleService _console;
     private readonly IPaymentProcessor _paymentProcessor;
     private readonly IAlphaRpcClient _alphaRpcClient;
+    private readonly IAutomatedPaymentService _automatedPaymentService;
     private readonly ILogger<PaymentProcessorApp> _logger;
 
     public PaymentProcessorApp(
@@ -19,6 +20,7 @@ public class PaymentProcessorApp
         IConsoleService console,
         IPaymentProcessor paymentProcessor,
         IAlphaRpcClient alphaRpcClient,
+        IAutomatedPaymentService automatedPaymentService,
         ILogger<PaymentProcessorApp> logger)
     {
         _config = config;
@@ -26,6 +28,7 @@ public class PaymentProcessorApp
         _console = console;
         _paymentProcessor = paymentProcessor;
         _alphaRpcClient = alphaRpcClient;
+        _automatedPaymentService = automatedPaymentService;
         _logger = logger;
     }
 
@@ -53,68 +56,28 @@ public class PaymentProcessorApp
             // Alpha daemon connection and wallet configuration
             await ConfigureWalletAsync();
 
-            // Main processing loop
-            while (true)
+            // Show automation configuration if enabled
+            if (_config.Automation.Enabled)
             {
-                try
-                {
-                    // Fetch pending payments
-                    _console.DisplayInfo("Fetching pending payments...");
-                    var pendingPayments = await _apiClient.GetPendingPaymentsAsync(_config.PoolId);
-                    
-                    // Display payments
-                    _console.DisplayPendingPayments(pendingPayments);
-                    
-                    if (pendingPayments.Count == 0)
-                    {
-                        _console.DisplayInfo("No pending payments found. Exiting...");
-                        break;
-                    }
+                _console.DisplayAutomationConfig(_config.Automation);
+            }
 
-                    // Select payments to process
-                    var selectedPayments = _console.SelectPayments(pendingPayments);
-                    
-                    if (selectedPayments.Count == 0)
-                    {
-                        _console.DisplayInfo("No payments selected. Exiting...");
-                        break;
-                    }
+            // Determine processing mode
+            bool useAutomation = _config.Automation.Enabled;
+            if (!useAutomation)
+            {
+                useAutomation = _console.PromptForAutomationMode();
+            }
 
-                    // Confirm processing
-                    var confirmed = _console.ConfirmProcessing(selectedPayments);
-                    
-                    if (!confirmed)
-                    {
-                        _console.DisplayInfo("Processing cancelled. Exiting...");
-                        break;
-                    }
-
-                    // Process payments
-                    var results = await _paymentProcessor.ProcessPaymentsAsync(selectedPayments);
-                    
-                    // Display results
-                    _console.DisplayProcessingResults(results);
-                    
-                    // Ask if user wants to continue
-                    var continueProcessing = selectedPayments.Count < pendingPayments.Count;
-                    if (continueProcessing)
-                    {
-                        _console.DisplayInfo("Processing completed. Check for more pending payments...");
-                        await Task.Delay(2000); // Brief pause before next iteration
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in processing loop");
-                    _console.DisplayError($"Processing error: {ex.Message}");
-                    
-                    // Ask if user wants to retry
-                    break;
-                }
+            if (useAutomation)
+            {
+                _logger.LogInformation("Starting automated payment processing");
+                await RunAutomatedModeAsync();
+            }
+            else
+            {
+                _logger.LogInformation("Starting manual payment processing");
+                await RunManualModeAsync();
             }
 
             _console.DisplayInfo("Payment processing completed.");
@@ -124,6 +87,94 @@ public class PaymentProcessorApp
             _logger.LogError(ex, "Fatal error in Payment Processor");
             _console.DisplayError($"Fatal error: {ex.Message}");
             throw;
+        }
+    }
+
+    private async Task RunAutomatedModeAsync()
+    {
+        try
+        {
+            var cts = new CancellationTokenSource();
+            
+            // Handle Ctrl+C gracefully
+            Console.CancelKeyPress += (sender, e) => {
+                e.Cancel = true;
+                _console.DisplayInfo("Shutting down automated processing...");
+                cts.Cancel();
+            };
+
+            await _automatedPaymentService.RunAutomatedPaymentsAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Automated processing cancelled by user");
+        }
+    }
+
+    private async Task RunManualModeAsync()
+    {
+        // Main processing loop (original manual mode)
+        while (true)
+        {
+            try
+            {
+                // Fetch pending payments
+                _console.DisplayInfo("Fetching pending payments...");
+                var pendingPayments = await _apiClient.GetPendingPaymentsAsync(_config.PoolId);
+                
+                // Display payments
+                _console.DisplayPendingPayments(pendingPayments);
+                
+                if (pendingPayments.Count == 0)
+                {
+                    _console.DisplayInfo("No pending payments found. Exiting...");
+                    break;
+                }
+
+                // Select payments to process
+                var selectedPayments = _console.SelectPayments(pendingPayments);
+                
+                if (selectedPayments.Count == 0)
+                {
+                    _console.DisplayInfo("No payments selected. Exiting...");
+                    break;
+                }
+
+                // Confirm processing
+                var confirmed = _console.ConfirmProcessing(selectedPayments);
+                
+                if (!confirmed)
+                {
+                    _console.DisplayInfo("Processing cancelled. Exiting...");
+                    break;
+                }
+
+                // Process payments
+                var results = await _paymentProcessor.ProcessPaymentsAsync(selectedPayments);
+                
+                // Display results
+                _console.DisplayProcessingResults(results);
+                
+                // Ask if user wants to continue
+                var continueProcessing = selectedPayments.Count < pendingPayments.Count;
+                if (continueProcessing)
+                {
+                    _console.DisplayInfo("Processing completed. Check for more pending payments...");
+                    await Task.Delay(2000); // Brief pause before next iteration
+                }
+                else
+                {
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in processing loop");
+                _console.DisplayError($"Processing error: {ex.Message}");
+                
+                // Ask if user wants to retry
+                break;
+            }
         }
     }
 

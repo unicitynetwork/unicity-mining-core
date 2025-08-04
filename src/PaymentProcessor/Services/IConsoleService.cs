@@ -1,3 +1,4 @@
+using PaymentProcessor.Configuration;
 using PaymentProcessor.Models;
 
 namespace PaymentProcessor.Services;
@@ -14,4 +15,6 @@ public interface IConsoleService
     void DisplayProcessingResults(List<PaymentProcessingResult> results);
     void DisplayError(string message);
     void DisplayInfo(string message);
+    bool PromptForAutomationMode();
+    void DisplayAutomationConfig(AutomationConfig config);
 }

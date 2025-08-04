@@ -380,4 +380,106 @@ public class AlphaRpcClient : IAlphaRpcClient
 
         return rpcResponse.Result ?? throw new InvalidOperationException("RPC response result is null");
     }
+
+    public async Task<decimal> GetTotalSentToAddressAsync(string address, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Getting total amount sent to address: {Address}", address);
+            
+            // Use listtransactions to get all transactions from this wallet
+            var response = await ExecuteRpcAsync<List<dynamic>>("listtransactions", cancellationToken, "*", 9999999);
+            
+            decimal totalSent = 0;
+            
+            foreach (var tx in response)
+            {
+                var txData = JsonSerializer.Deserialize<JsonElement>(tx.ToString());
+                
+                // Only count 'send' transactions to the target address
+                if (!txData.TryGetProperty("category", out JsonElement category))
+                    continue;
+                    
+                if (category.GetString() != "send")
+                    continue;
+                    
+                if (!txData.TryGetProperty("address", out JsonElement txAddress))
+                    continue;
+                    
+                if (txAddress.GetString() != address)
+                    continue;
+                    
+                if (!txData.TryGetProperty("amount", out JsonElement amount))
+                    continue;
+                
+                // Amount is negative for sends, so we negate it to get positive
+                var sentAmount = Math.Abs(amount.GetDecimal());
+                totalSent += sentAmount;
+                
+                _logger.LogDebug("Found sent transaction: {Amount} ALPHA to {Address}", 
+                    sentAmount, address);
+            }
+            
+            _logger.LogInformation("Total sent to {Address}: {Total} ALPHA", address, totalSent);
+            return totalSent;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get total sent to address {Address}", address);
+            return 0; // Conservative approach - assume nothing sent if we can't determine
+        }
+    }
+
+    public async Task<BlockInfo> GetBlockInfoAsync(string blockHash, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var blockData = await ExecuteRpcAsync<JsonElement>("getblock", cancellationToken, blockHash);
+            
+            return new BlockInfo
+            {
+                Hash = blockData.GetProperty("hash").GetString() ?? string.Empty,
+                Height = blockData.GetProperty("height").GetInt32(),
+                Time = DateTimeOffset.FromUnixTimeSeconds(blockData.GetProperty("time").GetInt64()).DateTime,
+                PreviousBlockHash = blockData.TryGetProperty("previousblockhash", out var prevHash) ? prevHash.GetString() ?? string.Empty : string.Empty,
+                NextBlockHash = blockData.TryGetProperty("nextblockhash", out var nextHash) ? nextHash.GetString() ?? string.Empty : string.Empty,
+                TxCount = blockData.TryGetProperty("tx", out var tx) ? tx.GetArrayLength() : 0,
+                Size = blockData.TryGetProperty("size", out var size) ? size.GetInt64() : 0,
+                Difficulty = blockData.TryGetProperty("difficulty", out var diff) ? diff.GetDecimal() : 0
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get block info for hash {BlockHash}", blockHash);
+            throw;
+        }
+    }
+
+    public async Task<string> GetBestBlockHashAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var blockHash = await ExecuteRpcAsync<string>("getbestblockhash", cancellationToken);
+            return blockHash;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get best block hash");
+            throw;
+        }
+    }
+
+    public async Task<int> GetBlockCountAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var blockCount = await ExecuteRpcAsync<int>("getblockcount", cancellationToken);
+            return blockCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get block count");
+            throw;
+        }
+    }
 }
