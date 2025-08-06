@@ -42,7 +42,23 @@ sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
 
 # Verify .NET installation
 dotnet --version
+```
 
+### Prerequisites Verification
+Before proceeding to the next sections, verify all basic components are working:
+
+```bash
+# Verify .NET installation
+dotnet --version
+
+# Verify build tools are installed
+gcc --version
+cmake --version
+
+# Check available system resources
+free -h        # Check RAM
+df -h          # Check disk space
+nproc          # Check CPU cores (important for RandomX performance)
 ```
 
 <a id="system-requirements"></a>
@@ -109,6 +125,13 @@ curl -u your_rpc_username:your_strong_rpc_password \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"1.0","id":"test","method":"getblockchaininfo","params":[]}' \
   http://localhost:8589/
+
+# Alternative: Test with alpha-cli (if available)
+./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password getblockchaininfo
+
+# Verify ZMQ is working
+ss -tulpn | grep 28332  # Should show ZMQ hash block port
+ss -tulpn | grep 28333  # Should show ZMQ raw transaction port
 ```
 
 ### Security Recommendation: Separate Wallet Machine
@@ -131,19 +154,36 @@ sudo apt update
 sudo apt install -y postgresql postgresql-contrib
 ```
 
-### 2. Configure PostgreSQL
+### 2. Configure PostgreSQL Authentication
+
+**Important**: Configure md5 authentication to avoid common password issues.
+
 ```bash
 # Start PostgreSQL service
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
 
-# Create database user and database
+# Configure authentication method
+sudo nano /etc/postgresql/*/main/pg_hba.conf
+
+# Find this line:
+# local   all             all                                     peer
+# Change it to:
+# local   all             all                                     md5
+
+# Restart PostgreSQL to apply authentication changes
+sudo systemctl restart postgresql
+
+# Create database user and database (use simple alphanumeric password)
 sudo -u postgres psql << EOF
-CREATE ROLE miningcore WITH LOGIN ENCRYPTED PASSWORD 'your_postgres_secure_password';
+CREATE ROLE miningcore WITH LOGIN ENCRYPTED PASSWORD 'miningcore123';
 CREATE DATABASE miningcore OWNER miningcore;
 GRANT ALL PRIVILEGES ON DATABASE miningcore TO miningcore;
 \q
 EOF
+
+# Test database connection
+PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "SELECT version();"
 ```
 
 ### 3. Import Database Schema
@@ -171,6 +211,12 @@ rm /tmp/createdb.sql
 ```bash
 cd unicity-mining-core
 
+# Make build scripts executable
+chmod +x build-ubuntu-20.04.sh build-ubuntu-22.04.sh
+
+# IMPORTANT: Fix .NET installation path (if not done earlier)
+sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
+
 # Build for Ubuntu 20.04
 ./build-ubuntu-20.04.sh
 
@@ -181,6 +227,9 @@ cd unicity-mining-core
 cd src/Miningcore
 dotnet publish -c Release --framework net6.0 -o ../../build
 cd ../..
+
+# Verify build completed successfully
+ls -la build/
 ```
 
 ### 2. Generate Admin API Key
@@ -222,7 +271,7 @@ Create `config.json` in the root directory:
       "host": "127.0.0.1",
       "port": 5432,
       "user": "miningcore",
-      "password": "your_postgres_secure_password",
+      "password": "miningcore123",
       "database": "miningcore"
     }
   },
@@ -319,7 +368,7 @@ Create `config.json` in the root directory:
 
 **Replace the following placeholder values with your actual configuration:**
 
-- `your_postgres_secure_password` - PostgreSQL database password you created earlier
+- `miningcore123` - PostgreSQL database password (use the simple password from database setup)
 - `your_admin_api_key_here` - The API key generated in step 2 above
 - `your_pool_alpha_address_here` - Alpha address where pool fees will be collected
 - `your_rpc_username` / `your_strong_rpc_password` - Alpha daemon RPC credentials from your Alpha node configuration
@@ -349,10 +398,56 @@ Create `config.json` in the root directory:
 
 For complete configuration reference and advanced options, see the [Miningcore Configuration Wiki](https://github.com/coinfoundry/miningcore/wiki/Configuration).
 
-### 4. Test Pool Server
+### 4. Validate Pool Address
+
+**Critical**: Ensure your pool address is valid for the Alpha network before starting the pool.
+
+```bash
+# Generate a new address if needed
+./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password getnewaddress
+
+# Validate your pool address format (must be valid Alpha bech32 format)
+./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password validateaddress your_pool_address
+
+# Example valid Alpha address format: alpha1q...
+# Example output should show: "isvalid": true
+
+# Update your config.json with the validated address
+nano config.json
+# Replace "your_pool_alpha_address_here" with your validated address
+```
+
+### 5. Test Pool Server
 ```bash
 cd build
 ./Miningcore -c ../config.json
+```
+
+### 6. Verify Successful Startup
+
+**Look for these success indicators in the pool startup logs:**
+
+```bash
+# Monitor pool logs for successful startup
+tail -f ../logs/pool.log
+
+# Success indicators you should see:
+# - "Pool alpha1 Online" - Pool is running
+# - "Stratum server listening on port 3052/3053/3054" - Mining ports are active  
+# - "API server listening on port 4000" - API is accessible
+# - "Creating 40 VMs" - RandomX multi-core optimization is active
+# - "Daemon is synced and responding" - Alpha node connection working
+
+# Test API endpoint from another terminal
+curl http://localhost:4000/api/pools
+
+# Test stratum connection (basic connectivity test)
+telnet localhost 3052
+# Type any text and press Enter - should respond with JSON error (proves stratum is working)
+# Exit with Ctrl+] then 'quit'
+
+# Check RandomX multi-core performance
+htop  # Should show activity across all CPU cores during mining operations
 ```
 
 <a id="web-frontend-setup"></a>
@@ -803,11 +898,66 @@ Your Unicity Alpha mining pool is now ready to serve miners and contribute to th
 
 ### Common Issues
 
+#### Database Authentication Errors
+**Error**: `FATAL: password authentication failed for user "miningcore"`
+
+**Solution**: 
+```bash
+# 1. Check pg_hba.conf is set to md5 authentication
+sudo nano /etc/postgresql/*/main/pg_hba.conf
+# Ensure line shows: local   all   all   md5
+
+# 2. Restart PostgreSQL
+sudo systemctl restart postgresql
+
+# 3. Use simple alphanumeric password (avoid special characters)
+# 4. Test connection manually
+PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "SELECT version();"
+```
+
+#### Build Permission Errors
+**Error**: `Permission denied: './build-ubuntu-*.sh'`
+
+**Solution**:
+```bash
+chmod +x build-ubuntu-20.04.sh build-ubuntu-22.04.sh
+```
+
+#### .NET Path Issues
+**Error**: `dotnet command not found` during build
+
+**Solution**:
+```bash
+sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
+dotnet --version  # Verify fix worked
+```
+
+#### Invalid Pool Address
+**Error**: Pool fails to start with "Invalid address" error
+
+**Solution**:
+```bash
+# Validate your pool address format
+./alpha-cli -rpcuser=your_username -rpcpassword=your_password validateaddress your_pool_address
+# Must show "isvalid": true and proper Alpha bech32 format (alpha1q...)
+```
+
+#### RandomX Performance Issues
+**Problem**: Pool using only 1 CPU core instead of all available cores
+
+**Verification**:
+```bash
+# Check if RandomX multi-core is working
+htop  # Should show activity on all CPU cores during mining
+grep "Creating.*VMs" logs/pool.log  # Should show "Creating 40 VMs" not "Creating 1 VMs"
+```
+
 #### Pool Won't Start
 - Check Alpha node is running and synced
-- Verify database connection
-- Check configuration file syntax
+- Verify database connection works (use PGPASSWORD test above)
+- Check configuration file syntax (JSON format)
 - Review log files in `logs/` directory
+- Ensure all required ports are available (not in use by other services)
 
 #### No Shares Accepted
 - Verify stratum port configuration
@@ -837,14 +987,61 @@ Your Unicity Alpha mining pool is now ready to serve miners and contribute to th
 <a id="security-best-practices"></a>
 ## Security Best Practices
 
-1. **Keep software updated**
-2. **Use strong passwords and API keys**
-3. **Implement proper firewall rules**
-4. **Regular security audits**
-5. **Backup procedures**
-6. **Monitor for suspicious activity**
-7. **Use SSL/TLS in production**
-8. **Limit RPC access to localhost only**
+### Create Dedicated Pool User
+
+**Important**: Do not run the pool as root in production. Create a dedicated user:
+
+```bash
+# Create dedicated user
+sudo adduser --disabled-password --gecos "Mining Pool" pooluser
+sudo usermod -aG sudo pooluser
+
+# Set ownership of pool files
+sudo chown -R pooluser:pooluser /path/to/unicity-mining-core
+
+# Create systemd service for automatic startup
+sudo nano /etc/systemd/system/miningcore.service
+```
+
+**Systemd service file content:**
+```ini
+[Unit]
+Description=Miningcore Mining Pool
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=pooluser
+WorkingDirectory=/home/pooluser/unicity-mining-core
+ExecStart=/home/pooluser/unicity-mining-core/build/Miningcore -c config.json
+Restart=always
+RestartSec=10
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Enable and start service
+sudo systemctl enable miningcore
+sudo systemctl start miningcore
+sudo systemctl status miningcore
+
+# View logs
+sudo journalctl -u miningcore -f
+```
+
+### Additional Security Measures
+
+1. **Keep software updated** - Regular system and software updates
+2. **Use strong passwords and API keys** - Generate secure 64-character API keys
+3. **Implement proper firewall rules** - Only allow necessary ports (22, 4000, 3052-3054)
+4. **Regular security audits** - Monitor logs and system access
+5. **Backup procedures** - Regular database and configuration backups
+6. **Monitor for suspicious activity** - Watch for unusual mining patterns
+7. **Use SSL/TLS in production** - Encrypt API and web frontend communications
+8. **Limit RPC access to localhost only** - Keep Alpha node RPC internal
 
 
 
