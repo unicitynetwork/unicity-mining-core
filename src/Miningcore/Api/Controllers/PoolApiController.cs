@@ -666,12 +666,10 @@ public class PoolApiController : ApiControllerBase
                 break;
 
             case SampleRange.Day:
-                // set range
-                if(end.Minute < 30)
-                    end = end.AddHours(-1);
-
+                // set range - round to current hour to include latest data
                 end = end.AddMinutes(-end.Minute);
                 end = end.AddSeconds(-end.Second);
+                end = end.AddMilliseconds(-end.Millisecond);
 
                 start = end.AddDays(-1);
 
