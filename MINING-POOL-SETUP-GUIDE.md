@@ -107,7 +107,7 @@ daemon=1
 txindex=1
 
 # Required ZMQ settings for real-time notifications
-zmqpubhashblock=tcp://127.0.0.1:28332
+zmqpubhashblock=tcp://127.0.0.1:15101
 zmqpubrawtx=tcp://127.0.0.1:28333
 ```
 
@@ -130,7 +130,7 @@ curl -u your_rpc_username:your_strong_rpc_password \
 ./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password getblockchaininfo
 
 # Verify ZMQ is working
-ss -tulpn | grep 28332  # Should show ZMQ hash block port
+ss -tulpn | grep 15101  # Should show ZMQ hash block port
 ss -tulpn | grep 28333  # Should show ZMQ raw transaction port
 ```
 
@@ -251,116 +251,156 @@ Create `config.json` in the root directory:
 
 ```json
 {
-  "logging": {
-    "level": "info",
-    "enableConsoleLog": true,
-    "enableConsoleColors": true,
-    "logFile": "logs/pool.log",
-    "logBaseDirectory": "logs"
-  },
-  "banning": {
-    "manager": "Integrated",
-    "banOnJunkReceive": true,
-    "banOnInvalidShares": false
-  },
-  "notifications": {
-    "enabled": false
-  },
-  "persistence": {
-    "postgres": {
-      "host": "127.0.0.1",
-      "port": 5432,
-      "user": "miningcore",
-      "password": "miningcore123",
-      "database": "miningcore"
-    }
-  },
-  "paymentProcessing": {
-    "enabled": false,
-    "interval": 600
-  },
-  "api": {
-    "enabled": true,
-    "listenAddress": "0.0.0.0",
-    "port": 4000,
-    "adminApiKeys": ["your_admin_api_key_here"]
-  },
-  "pools": [
-    {
-      "id": "alpha1",
-      "enabled": true,
-      "coin": "alpha",
-      "address": "your_pool_alpha_address_here",
-      "rewardRecipients": [],
-      "blockRefreshInterval": 1000,
-      "jobRebroadcastTimeout": 10,
-      "clientConnectionTimeout": 600,
-      "banning": {
-        "enabled": true,
-        "time": 600,
-        "invalidPercent": 50,
-        "checkThreshold": 50
-      },
-      "AddressType": "BechSegwit",
-      "ports": {
-        "3052": {
-          "listenAddress": "0.0.0.0",
-          "difficulty": 0.1,
-          "tls": false,
-          "varDiff": {
-            "minDiff": 0.01,
-            "maxDiff": null,
-            "targetTime": 30,
-            "retargetTime": 90,
-            "variancePercent": 30,
-            "maxDelta": 500
-          }
-        },
-        "3053": {
-          "listenAddress": "0.0.0.0",
-          "difficulty": 0.002,
-          "tls": false,
-          "varDiff": {
-            "minDiff": 0.05,
-            "maxDiff": null,
-            "targetTime": 30,
-            "retargetTime": 90,
-            "variancePercent": 30,
-            "maxDelta": 500
-          }
-        },
-        "3054": {
-          "listenAddress": "0.0.0.0",
-          "difficulty": 0.0002,
-          "tls": false,
-          "varDiff": {
-            "minDiff": 0.00002,
-            "maxDiff": null,
-            "targetTime": 30,
-            "retargetTime": 90,
-            "variancePercent": 30,
-            "maxDelta": 500
-          }
-        }
-      },
-      "daemons": [
-        {
-          "host": "127.0.0.1",
-          "port": 8589,
-          "user": "your_rpc_username",
-          "password": "your_strong_rpc_password"
-        }
-      ],
-      "paymentProcessing": {
+    "logging": {
+        "level": "info",
+        "enableConsoleLog": true,
+        "enableConsoleColors": true,
+        "logFile": "alpha-pool.log",
+        "apiLogFile": "alpha-api.log",
+        "logBaseDirectory": "logs",
+        "perPoolLogFile": true
+    },
+    "banning": {
+        "manager": "Integrated",
+        "banOnJunkReceive": true,
+        "banOnInvalidShares": false
+    },
+    "notifications": {
         "enabled": false,
-        "minimumPayment": 1.0,
-        "payoutScheme": "PROP",
-        "payoutSchemeConfig": {
-          "factor": 1.0
+        "email": {
+            "host": "smtp.example.com",
+            "port": 587,
+            "user": "user",
+            "password": "password",
+            "fromAddress": "alpha-pool@unicity-pool.com",
+            "fromName": "Alpha Pool"
+        },
+        "admin": {
+            "enabled": false,
+            "emailAddress": "admin@example.com",
+            "notifyBlockFound": true
         }
-      }
-    }
-  ]
+    },
+    "persistence": {
+        "postgres": {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "user": "miningcore",
+            "password": "miningcore123",
+            "database": "miningcore"
+        }
+    },
+    "paymentProcessing": {
+        "enabled": true,
+        "interval": 600,
+        "shareRecoveryFile": "recovered-shares.txt"
+    },
+    "api": {
+        "enabled": true,
+        "listenAddress": "127.0.0.1",
+        "port": 4000,
+        "adminApiKeys": ["your_admin_api_key_here"],
+        "adminIpWhitelist": ["127.0.0.1"],
+        "metricsIpWhitelist": [],
+        "rateLimiting": {
+            "disabled": false,
+            "rules": [
+                {
+                    "Endpoint": "*",
+                    "Period": "1s",
+                    "Limit": 5
+                }
+            ],
+            "ipWhitelist": ["0.0.0.0/0"]
+        }
+    },
+    "pools": [
+        {
+            "id": "alpha1",
+            "enabled": true,
+            "coin": "alpha",
+            "address": "your_pool_alpha_address_here",
+            "rewardRecipients": [
+                {
+                    "address": "your_pool_alpha_address_here",
+                    "percentage": 10.0
+                }
+            ],
+            "blockRefreshInterval": 300,
+            "jobRebroadcastTimeout": 45,
+            "clientConnectionTimeout": 600,
+            "banning": {
+                "enabled": true,
+                "time": 600,
+                "invalidPercent": 50,
+                "checkThreshold": 50
+            },
+            "AddressType": "BechSegwit",
+            "extra": {
+                "useSingleInputUtxo": true,
+                "changeAddress": "your_pool_alpha_address_here",
+                "maxOutputsPerTx": 50
+            },
+            "ports": {
+                "3052": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.1,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.01,
+                        "maxDiff": null,
+                        "targetTime": 30,
+                        "retargetTime": 90,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                },
+                "3053": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.002,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.05,
+                        "maxDiff": null,
+                        "targetTime": 30,
+                        "retargetTime": 90,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                },
+                "3054": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.01,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.005,
+                        "maxDiff": null,
+                        "targetTime": 120,
+                        "retargetTime": 300,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                }
+            },
+            "daemons": [
+                {
+                    "host": "127.0.0.1",
+                    "port": 8589,
+                    "user": "your_rpc_username",
+                    "password": "your_strong_rpc_password",
+                    "type": "json-rpc",
+                    "zmqBlockNotifySocket": "tcp://127.0.0.1:15101"
+                }
+            ],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PROP",
+                "payoutSchemeConfig": {
+                }
+            }
+        }
+    ]
 }
 ```
 
@@ -375,26 +415,36 @@ Create `config.json` in the root directory:
 
 **Key Configuration Settings:**
 
-- **paymentProcessing.enabled: false** - Automatic payments disabled (using external PaymentProcessor)
+- **paymentProcessing.enabled: true** - Automatic payments enabled (can be disabled if using external PaymentProcessor)
 - **payoutScheme: "PROP"** - Proportional payment scheme (fair distribution based on submitted shares)
 - **AddressType: "BechSegwit"** - Required for Alpha Bech32 addresses (alpha1... format)
-- **rewardRecipients: []** - Pool fee recipients (empty = no pool fees)
-  - Example with 2% pool fee: `[{"address": "alpha1q...", "percentage": 2.0}]`
-- **minimumPayment: 1.0** - Minimum payout amount in ALPHA before payment is sent to miners
-- **factor: 1.0** - PROP scheme factor (1.0 = standard proportional distribution)
+- **rewardRecipients** - Pool fee configuration (10% pool fee in example):
+  ```json
+  [{"address": "your_pool_alpha_address_here", "percentage": 10.0}]
+  ```
+- **minimumPayment: 1** - Minimum payout amount in ALPHA before payment is sent to miners
+- **extra** - Advanced transaction settings:
+  - **useSingleInputUtxo: true** - Optimize transaction creation
+  - **changeAddress** - Where transaction change is sent (use pool address)
+  - **maxOutputsPerTx: 50** - Maximum payments per transaction
 - **ports** - Multiple Stratum mining ports with different difficulties:
-  - **3052**: High difficulty (0.1) for powerful miners
-  - **3053**: Medium difficulty (0.002) for average miners  
-  - **3054**: Low difficulty (0.0002) for low-power miners
-- **varDiff** - Variable difficulty adjustment for optimal performance:
-  - **minDiff**: Minimum difficulty allowed (0.00002 for low-power miners)
-  - **maxDiff**: Maximum difficulty (null = no limit, auto-adjusts based on hashrate)
-  - **targetTime**: Target time in seconds between shares (30s = optimal for most miners)
-  - **retargetTime**: How often to adjust difficulty in seconds (90s intervals)
-  - **variancePercent**: Allowed variance from target time before adjustment (30% = adjust if shares come faster than 21s or slower than 39s)
-  - **maxDelta**: Maximum percentage difficulty change per adjustment (500% = allows large adjustments for quick convergence)
-- **api.port: 4000** - Pool API port for statistics and PaymentProcessor access
-- **blockRefreshInterval: 1000** - How often (ms) to check for new blocks
+  - **3052**: High difficulty (0.1) for powerful miners (minDiff: 0.01)
+  - **3053**: Medium difficulty (0.002) for average miners (minDiff: 0.05)
+  - **3054**: Lower difficulty (0.01) for weaker miners (minDiff: 0.005, slower timing)
+- **varDiff** - Variable difficulty adjustment settings:
+  - **targetTime**: Target seconds between shares (30s for ports 3052/3053, 120s for 3054)
+  - **retargetTime**: Difficulty adjustment interval (90s for fast ports, 300s for slow)
+  - **variancePercent**: 30% - Adjustment trigger threshold
+  - **maxDelta**: 500% - Maximum difficulty change per adjustment
+- **API security**:
+  - **listenAddress: "127.0.0.1"** - Localhost only (more secure than 0.0.0.0)
+  - **adminIpWhitelist** - Restrict admin API access to specific IPs
+  - **rateLimiting** - Prevent API abuse (5 requests per second)
+- **ZMQ Configuration**: 
+  - **zmqBlockNotifySocket: "tcp://127.0.0.1:15101"** - Alpha node block notifications
+- **Performance settings**:
+  - **blockRefreshInterval: 300** - Check for new blocks every 300ms (faster response)
+  - **jobRebroadcastTimeout: 45** - Rebroadcast jobs after 45s (improved reliability)
 
 For complete configuration reference and advanced options, see the [Miningcore Configuration Wiki](https://github.com/coinfoundry/miningcore/wiki/Configuration).
 
@@ -895,87 +945,6 @@ Your Unicity Alpha mining pool is now ready to serve miners and contribute to th
 
 <a id="troubleshooting"></a>
 ## Troubleshooting
-
-### Common Issues
-
-#### Database Authentication Errors
-**Error**: `FATAL: password authentication failed for user "miningcore"`
-
-**Solution**: 
-```bash
-# 1. Check pg_hba.conf is set to md5 authentication
-sudo nano /etc/postgresql/*/main/pg_hba.conf
-# Ensure line shows: local   all   all   md5
-
-# 2. Restart PostgreSQL
-sudo systemctl restart postgresql
-
-# 3. Use simple alphanumeric password (avoid special characters)
-# 4. Test connection manually
-PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "SELECT version();"
-```
-
-#### Build Permission Errors
-**Error**: `Permission denied: './build-ubuntu-*.sh'`
-
-**Solution**:
-```bash
-chmod +x build-ubuntu-20.04.sh build-ubuntu-22.04.sh
-```
-
-#### .NET Path Issues
-**Error**: `dotnet command not found` during build
-
-**Solution**:
-```bash
-sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
-dotnet --version  # Verify fix worked
-```
-
-#### Invalid Pool Address
-**Error**: Pool fails to start with "Invalid address" error
-
-**Solution**:
-```bash
-# Validate your pool address format
-./alpha-cli -rpcuser=your_username -rpcpassword=your_password validateaddress your_pool_address
-# Must show "isvalid": true and proper Alpha bech32 format (alpha1q...)
-```
-
-#### RandomX Performance Issues
-**Problem**: Pool using only 1 CPU core instead of all available cores
-
-**Verification**:
-```bash
-# Check if RandomX multi-core is working
-htop  # Should show activity on all CPU cores during mining
-grep "Creating.*VMs" logs/pool.log  # Should show "Creating 40 VMs" not "Creating 1 VMs"
-```
-
-#### Pool Won't Start
-- Check Alpha node is running and synced
-- Verify database connection works (use PGPASSWORD test above)
-- Check configuration file syntax (JSON format)
-- Review log files in `logs/` directory
-- Ensure all required ports are available (not in use by other services)
-
-#### No Shares Accepted
-- Verify stratum port configuration
-- Check Alpha node connectivity
-- Validate pool address
-- Review miner configuration
-
-#### Payment Issues
-- Ensure Alpha node wallet has sufficient funds
-- Check PaymentProcessor configuration
-- Verify API key authentication
-- Review payment logs
-
-#### Performance Issues
-- Monitor system resources (CPU, RAM, network)
-- Check database performance
-- Review pool configuration parameters
-- Consider scaling up hardware
 
 ### Log Locations
 - Pool logs: `logs/pool.log`
