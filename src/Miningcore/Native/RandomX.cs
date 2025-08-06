@@ -186,44 +186,44 @@ public static unsafe class RandomX
     public static void CreateSeed(string realm, string seedHex,
         randomx_flags? flagsOverride = null, randomx_flags? flagsAdd = null, int vmCount = 1)
     {
-        logger.Warn(() => $"DEBUG-RandomX: CreateSeed called for realm={realm}, seedHex={seedHex}");
+        logger.Debug(() => $"DEBUG-RandomX: CreateSeed called for realm={realm}, seedHex={seedHex}");
         
         lock(realms)
         {
             if(!realms.TryGetValue(realm, out var seeds))
             {
-                logger.Warn(() => $"DEBUG-RandomX: Creating new realm dictionary for {realm}");
+                logger.Debug(() => $"DEBUG-RandomX: Creating new realm dictionary for {realm}");
                 seeds = new Dictionary<string, Tuple<GenContext, BlockingCollection<RxVm>>>();
                 realms[realm] = seeds;
             }
             else
             {
-                logger.Warn(() => $"DEBUG-RandomX: Found existing realm: {realm}");
+                logger.Debug(() => $"DEBUG-RandomX: Found existing realm: {realm}");
             }
 
             if(!seeds.TryGetValue(seedHex, out var seed))
             {
-                logger.Warn(() => $"DEBUG-RandomX: Seed {seedHex} not found, creating new VMs");
+                logger.Debug(() => $"DEBUG-RandomX: Seed {seedHex} not found, creating new VMs");
                 
                 var flags = flagsOverride ?? randomx_get_flags();
                 if(flagsAdd.HasValue)
                     flags |= flagsAdd.Value;
                     
-                logger.Warn(() => $"DEBUG-RandomX: Using flags: {flags}");
+                logger.Debug(() => $"DEBUG-RandomX: Using flags: {flags}");
 
                 if (vmCount == -1)
                     vmCount = Environment.ProcessorCount;
                     
-                logger.Warn(() => $"DEBUG-RandomX: Creating {vmCount} VMs");
+                logger.Debug(() => $"DEBUG-RandomX: Creating {vmCount} VMs");
 
                 seed = CreateSeed(realm, seedHex, flags, vmCount);
                 seeds[seedHex] = seed;
                 
-                logger.Warn(() => $"DEBUG-RandomX: Seed {seedHex} created and stored for realm {realm}");
+                logger.Debug(() => $"DEBUG-RandomX: Seed {seedHex} created and stored for realm {realm}");
             }
             else
             {
-                logger.Warn(() => $"DEBUG-RandomX: Seed {seedHex} already exists for realm {realm}");
+                logger.Debug(() => $"DEBUG-RandomX: Seed {seedHex} already exists for realm {realm}");
             }
         }
     }
@@ -306,28 +306,28 @@ public static unsafe class RandomX
         
         // For logging, we need to convert spans to arrays
         var dataBytes = data.ToArray();
-        logger.Warn(() => $"DEBUG-RandomX: Starting CalculateHash for realm={realm}, seedHex={seedHex}, dataLength={dataBytes.Length}");
+        logger.Debug(() => $"DEBUG-RandomX: Starting CalculateHash for realm={realm}, seedHex={seedHex}, dataLength={dataBytes.Length}");
         var dataPrefix = dataBytes.Length >= 16 ? BitConverter.ToString(dataBytes, 0, 16).Replace("-", "") : BitConverter.ToString(dataBytes).Replace("-", "");
-        logger.Warn(() => $"DEBUG-RandomX: First 16 bytes of data: {dataPrefix}");
+        logger.Debug(() => $"DEBUG-RandomX: First 16 bytes of data: {dataPrefix}");
 
         var (ctx, seedVms) = GetSeed(realm, seedHex);
 
         if(ctx != null)
         {
-            logger.Warn(() => $"DEBUG-RandomX: Found seed for realm={realm}, seedHex={seedHex}");
+            logger.Debug(() => $"DEBUG-RandomX: Found seed for realm={realm}, seedHex={seedHex}");
             RxVm vm = null;
 
             try
             {
                 // lease a VM
                 vm = seedVms.Take();
-                logger.Warn(() => $"DEBUG-RandomX: Acquired VM for hashing");
+                logger.Debug(() => $"DEBUG-RandomX: Acquired VM for hashing");
 
                 vm.CalculateHash(data, result);
                 
                 // Copy to array for logging
                 var resultBytes = result.ToArray();
-                logger.Warn(() => $"DEBUG-RandomX: Computed hash: {resultBytes.ToHexString()}");
+                logger.Debug(() => $"DEBUG-RandomX: Computed hash: {resultBytes.ToHexString()}");
 
                 ctx.LastAccess = DateTime.Now;
                 success = true;
@@ -336,8 +336,8 @@ public static unsafe class RandomX
             }
             catch(Exception ex)
             {
-                logger.Error(() => $"DEBUG-RandomX: Error calculating hash: {ex.Message}");
-                logger.Error(() => ex.StackTrace);
+                logger.Debug(() => $"DEBUG-RandomX: Error calculating hash: {ex.Message}");
+                logger.Debug(() => ex.StackTrace);
             }
             finally
             {
@@ -345,24 +345,24 @@ public static unsafe class RandomX
                 if(vm != null)
                 {
                     seedVms.Add(vm);
-                    logger.Warn(() => $"DEBUG-RandomX: Returned VM to pool");
+                    logger.Debug(() => $"DEBUG-RandomX: Returned VM to pool");
                 }
             }
         }
         else
         {
-            logger.Warn(() => $"DEBUG-RandomX: NO SEED FOUND for realm={realm}, seedHex={seedHex}");
+            logger.Debug(() => $"DEBUG-RandomX: NO SEED FOUND for realm={realm}, seedHex={seedHex}");
         }
 
         if(!success)
         {
             // clear result on failure
             empty.CopyTo(result);
-            logger.Warn(() => $"DEBUG-RandomX: Returning empty result due to failure");
+            logger.Debug(() => $"DEBUG-RandomX: Returning empty result due to failure");
         }
         else
         {
-            logger.Warn(() => $"DEBUG-RandomX: Successfully calculated hash in {sw.ElapsedMilliseconds}ms");
+            logger.Debug(() => $"DEBUG-RandomX: Successfully calculated hash in {sw.ElapsedMilliseconds}ms");
         }
     }
     
