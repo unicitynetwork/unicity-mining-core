@@ -323,7 +323,7 @@ Create `config.json` in the root directory:
             "rewardRecipients": [
                 {
                     "address": "your_pool_alpha_address_here",
-                    "percentage": 10.0
+                    "percentage": 5.0
                 }
             ],
             "blockRefreshInterval": 300,
@@ -357,13 +357,13 @@ Create `config.json` in the root directory:
                 },
                 "3053": {
                     "listenAddress": "0.0.0.0",
-                    "difficulty": 0.002,
+                    "difficulty": 0.05,
                     "tls": false,
                     "varDiff": {
                         "minDiff": 0.05,
                         "maxDiff": null,
-                        "targetTime": 30,
-                        "retargetTime": 90,
+                        "targetTime": 120,
+                        "retargetTime": 300,
                         "variancePercent": 30,
                         "maxDelta": 500
                     }
@@ -799,7 +799,7 @@ Create `src/PaymentProcessor/appsettings.json`:
 ```json
 {
   "PaymentProcessor": {
-    "ApiBaseUrl": "http://localhost:4000",
+    "ApiBaseUrl": "https://your-pool-domain.com",
     "PoolId": "alpha1",
     "ApiKey": "your_admin_api_key_here",
     "TimeoutSeconds": 30,
@@ -808,14 +808,22 @@ Create `src/PaymentProcessor/appsettings.json`:
       "RpcUser": "your_rpc_username",
       "RpcPassword": "your_strong_rpc_password",
       "RpcTimeoutSeconds": 30,
-      "DataDir": "/opt/alpha",
+      "DataDir": "/path/to/alpha/data",
       "WalletName": "pool_wallet",
-      "WalletAddress": "",
+      "WalletAddress": "your_pool_wallet_address_here",
       "ChangeAddress": "your_change_address_here",
       "WalletPassword": "",
       "FeePerByte": 0.00001,
       "ConfirmationsRequired": 1,
       "UseWalletRPC": true
+    },
+    "Automation": {
+      "Enabled": false,
+      "BatchSize": 10,
+      "BlockPeriod": 1,
+      "ShowWalletBalance": true,
+      "PollingIntervalSeconds": 30,
+      "MinimumBalance": 1.0
     }
   },
   "Serilog": {
@@ -851,27 +859,39 @@ Create `src/PaymentProcessor/appsettings.json`:
 **Replace the following placeholder values with your actual configuration:**
 
 - `your_admin_api_key_here` - The same API key generated for the pool server
-- `your_rpc_username` / `your_strong_rpc_password` - Alpha daemon RPC credentials on payment machine
+- `your_rpc_username` / `your_strong_rpc_password` - Alpha daemon RPC credentials on payment machine  
+- `your_pool_wallet_address_here` - Main wallet address for pool payments
 - `your_change_address_here` - Alpha address for transaction change (recommend using pool address)
+- `your-pool-domain.com` - Your pool's domain name or IP address
+- `/path/to/alpha/data` - Path to Alpha blockchain data directory
 
 **PaymentProcessor Settings:**
 
-- **ApiBaseUrl** - Pool server API URL (update to your pool server's IP/domain in production)
+- **ApiBaseUrl** - Pool server API URL (use HTTPS in production, e.g., `https://your-pool-domain.com`)
 - **PoolId** - Must match the pool ID from config.json ("alpha1")
 - **TimeoutSeconds** - API request timeout (30s recommended)
 
-**AlphaDaemon Settings:**
+**Alpha Daemon Settings:**
 
-- **RpcUrl** - Local Alpha daemon on payment machine (always localhost:8589)
-- **DataDir** - Alpha blockchain data directory path
-- **WalletName** - Wallet containing pool funds ("pool_wallet")
-- **WalletAddress** - Primary address from your pool wallet (used for payments)
-- **ChangeAddress** - Address for transaction change (recommend using pool address)
-- **FeePerByte** - Transaction fee rate (0.00001 ALPHA recommended)
-- **ConfirmationsRequired** - UTXOs must have this many confirmations (1 = faster payments)
-- **UseWalletRPC** - Always true (use wallet for signing transactions)
+- **RpcUrl** - Alpha node RPC endpoint (usually localhost:8589)
+- **DataDir** - Alpha blockchain data directory path (e.g., `/opt/alpha` or `~/.alpha`)
+- **WalletName** - Name of the pool wallet file
+- **WalletAddress** - Pool wallet address for payments (must be specified)
+- **ChangeAddress** - Alpha address for transaction change (recommend using pool address)
+- **FeePerByte** - Transaction fee rate (0.00001 recommended)
+- **ConfirmationsRequired** - Block confirmations before processing (1 for fast payments)
+- **UseWalletRPC** - Use Alpha wallet RPC (true recommended)
 
-**Serilog Settings:**
+**Automation Settings:**
+
+- **Enabled: false** - Manual payment processing (set to true for automatic payments)
+- **BatchSize: 10** - Number of payments per transaction (10-50 recommended)
+- **BlockPeriod: 1** - Process payments every N blocks (1 = every block)
+- **ShowWalletBalance: true** - Display wallet balance in logs
+- **PollingIntervalSeconds: 30** - How often to check for pending payments
+- **MinimumBalance: 1.0** - Minimum wallet balance required before processing payments
+
+**Logging Settings:**
 
 - **MinimumLevel** - Log verbosity (Information = standard, Debug for troubleshooting)
 - **WriteTo.File** - Daily rotating log files in logs/ directory
