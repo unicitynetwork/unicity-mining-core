@@ -1,6 +1,6 @@
 {
     "logging": {
-        "level": "debug",
+        "level": "info",
         "enableConsoleLog": true,
         "enableConsoleColors": true,
         "logFile": "alpha-pool.log",
@@ -71,7 +71,7 @@
             "rewardRecipients": [
                 {
                     "address": "YOUR_POOL_ADDRESS_HERE",
-                    "percentage": 10.
+                    "percentage": 10.0
                 }
             ],
             "blockRefreshInterval": 300,
@@ -118,13 +118,13 @@
                 },
                 "3054": {
                     "listenAddress": "0.0.0.0",
-                    "difficulty": 0.001,
+                    "difficulty": 0.01,
                     "tls": false,
                     "varDiff": {
-                        "minDiff": 0.00002,
+                        "minDiff": 0.005,
                         "maxDiff": null,
-                        "targetTime": 30,
-                        "retargetTime": 90,
+                        "targetTime": 120,
+                        "retargetTime": 300,
                         "variancePercent": 30,
                         "maxDelta": 500
                     }

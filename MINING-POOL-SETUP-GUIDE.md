@@ -31,8 +31,11 @@ sudo apt update
 sudo apt install -y build-essential cmake libssl-dev pkg-config \
     libboost-all-dev libsodium-dev libzmq5-dev git curl
 
-# Install .NET 6 SDK
-wget https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+# Install .NET 6 SDK (automatically detect Ubuntu version)
+UBUNTU_VERSION=$(lsb_release -rs)
+echo "📋 Detected Ubuntu version: $UBUNTU_VERSION"
+
+wget https://packages.microsoft.com/config/ubuntu/${UBUNTU_VERSION}/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
 sudo dpkg -i packages-microsoft-prod.deb
 sudo apt update
 sudo apt install -y dotnet-sdk-6.0
@@ -42,7 +45,88 @@ sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
 
 # Verify .NET installation
 dotnet --version
+```
 
+### Prerequisites Verification
+Before proceeding to the next sections, verify all basic components are working:
+
+```bash
+# System Pre-flight Check Script
+echo "🔍 Running system pre-flight checks..."
+
+# Check Ubuntu version compatibility
+UBUNTU_VERSION=$(lsb_release -rs)
+echo "📋 Ubuntu version: $UBUNTU_VERSION"
+
+if [[ "$UBUNTU_VERSION" < "20.04" ]]; then
+    echo "❌ Ubuntu version $UBUNTU_VERSION not supported (minimum: 20.04)"
+    exit 1
+else
+    echo "✅ Ubuntu version $UBUNTU_VERSION is supported"
+fi
+
+# Check system resources
+RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+CORES=$(nproc)
+DISK_GB=$(df -BG . | awk 'NR==2 {gsub(/G/, "", $4); print int($4)}')
+
+echo ""
+echo "📊 System Resources:"
+echo "   RAM: ${RAM_GB}GB (minimum: 8GB, recommended: 16GB+)"
+echo "   CPU Cores: $CORES (minimum: 4, recommended: 8+)"
+echo "   Available Disk: ${DISK_GB}GB (minimum: 100GB)"
+
+# Resource warnings
+WARNINGS=0
+if [ "$RAM_GB" -lt 8 ]; then
+    echo "⚠️  WARNING: RAM is below recommended 8GB"
+    ((WARNINGS++))
+fi
+
+if [ "$CORES" -lt 4 ]; then
+    echo "⚠️  WARNING: CPU cores below recommended 4"
+    ((WARNINGS++))
+fi
+
+if [ "$DISK_GB" -lt 100 ]; then
+    echo "❌ CRITICAL: Insufficient disk space (need 100GB+)"
+    exit 1
+fi
+
+# Check required tools
+echo ""
+echo "🔧 Checking development tools:"
+REQUIRED_TOOLS="gcc cmake git curl"
+for tool in $REQUIRED_TOOLS; do
+    if command -v $tool >/dev/null 2>&1; then
+        echo "   ✅ $tool: $(command -v $tool)"
+    else
+        echo "   ❌ $tool: Not found"
+        exit 1
+    fi
+done
+
+# Verify .NET installation
+echo ""
+echo "🔧 Checking .NET installation:"
+if command -v dotnet >/dev/null 2>&1; then
+    DOTNET_VERSION=$(dotnet --version)
+    echo "   ✅ .NET SDK: $DOTNET_VERSION"
+    if [[ "$DOTNET_VERSION" < "6.0" ]]; then
+        echo "   ⚠️  WARNING: .NET version $DOTNET_VERSION may be too old (6.0+ recommended)"
+        ((WARNINGS++))
+    fi
+else
+    echo "   ❌ .NET SDK: Not found"
+    exit 1
+fi
+
+echo ""
+if [ "$WARNINGS" -eq 0 ]; then
+    echo "✅ All system requirements verified - ready to proceed! 🎉"
+else
+    echo "⚠️  System ready with $WARNINGS warning(s) - consider upgrading hardware for optimal performance"
+fi
 ```
 
 <a id="system-requirements"></a>
@@ -91,7 +175,7 @@ daemon=1
 txindex=1
 
 # Required ZMQ settings for real-time notifications
-zmqpubhashblock=tcp://127.0.0.1:28332
+zmqpubhashblock=tcp://127.0.0.1:15101
 zmqpubrawtx=tcp://127.0.0.1:28333
 ```
 
@@ -109,6 +193,13 @@ curl -u your_rpc_username:your_strong_rpc_password \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"1.0","id":"test","method":"getblockchaininfo","params":[]}' \
   http://localhost:8589/
+
+# Alternative: Test with alpha-cli (if available)
+./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password getblockchaininfo
+
+# Verify ZMQ is working
+ss -tulpn | grep 15101  # Should show ZMQ hash block port
+ss -tulpn | grep 28333  # Should show ZMQ raw transaction port
 ```
 
 ### Security Recommendation: Separate Wallet Machine
@@ -131,19 +222,42 @@ sudo apt update
 sudo apt install -y postgresql postgresql-contrib
 ```
 
-### 2. Configure PostgreSQL
+### 2. Configure PostgreSQL Authentication
+
+**Important**: Configure md5 authentication to avoid common password issues.
+
 ```bash
 # Start PostgreSQL service
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
 
-# Create database user and database
+# Configure authentication method
+sudo nano /etc/postgresql/*/main/pg_hba.conf
+
+# Find this line:
+# local   all             all                                     peer
+# Change it to:
+# local   all             all                                     md5
+
+# Fix file permissions after editing as root
+sudo chown postgres:postgres /etc/postgresql/*/main/pg_hba.conf
+
+# Restart PostgreSQL to apply authentication changes
+sudo systemctl restart postgresql
+
+# Verify PostgreSQL is running
+sudo systemctl status postgresql
+
+# Create database user and database (use simple alphanumeric password)
 sudo -u postgres psql << EOF
-CREATE ROLE miningcore WITH LOGIN ENCRYPTED PASSWORD 'your_postgres_secure_password';
+CREATE ROLE miningcore WITH LOGIN ENCRYPTED PASSWORD 'miningcore123';
 CREATE DATABASE miningcore OWNER miningcore;
 GRANT ALL PRIVILEGES ON DATABASE miningcore TO miningcore;
 \q
 EOF
+
+# Test database connection
+PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "SELECT version();"
 ```
 
 ### 3. Import Database Schema
@@ -162,6 +276,31 @@ sudo -u postgres psql -d miningcore -f /tmp/createdb.sql
 
 # Clean up temporary file
 rm /tmp/createdb.sql
+
+# Verify database setup was successful
+echo "🔍 Verifying database schema..."
+
+# Check that all required tables were created
+EXPECTED_TABLES=8
+ACTUAL_TABLES=$(PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" | xargs)
+
+if [ "$ACTUAL_TABLES" -eq "$EXPECTED_TABLES" ]; then
+    echo "✅ Database schema: All $EXPECTED_TABLES tables created successfully"
+    # List the created tables
+    echo "📋 Created tables:"
+    PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "\dt" | grep -E '^ [a-z_]+' | awk '{print "   • " $3}'
+else
+    echo "❌ Database schema incomplete: Found $ACTUAL_TABLES tables, expected $EXPECTED_TABLES"
+    echo "Check the createdb.sql import output above for errors"
+    exit 1
+fi
+
+# Test database connection
+echo "🔗 Testing database connection..."
+PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "SELECT 'Database connection successful!' as status;" | grep successful && echo "✅ Database connection verified" || {
+    echo "❌ Database connection failed"
+    exit 1
+}
 ```
 
 <a id="miningcore-pool-server-setup"></a>
@@ -170,6 +309,12 @@ rm /tmp/createdb.sql
 ### 1. Build Miningcore
 ```bash
 cd unicity-mining-core
+
+# Make build scripts executable
+chmod +x build-ubuntu-20.04.sh build-ubuntu-22.04.sh
+
+# IMPORTANT: Fix .NET installation path (if not done earlier)
+sudo cp -r /usr/lib/dotnet/* /usr/share/dotnet/ 2>/dev/null || true
 
 # Build for Ubuntu 20.04
 ./build-ubuntu-20.04.sh
@@ -181,6 +326,27 @@ cd unicity-mining-core
 cd src/Miningcore
 dotnet publish -c Release --framework net6.0 -o ../../build
 cd ../..
+
+# Verify build completed successfully
+ls -la build/
+
+# Verify critical components are present
+if [ ! -f "build/Miningcore" ] || [ ! -f "build/Miningcore.dll" ]; then
+    echo "❌ Build failed: Missing critical components (Miningcore executable)"
+    echo "Check build output above for errors"
+    exit 1
+fi
+
+if [ ! -f "build/librandomx.so" ]; then
+    echo "❌ Build failed: Missing RandomX library (librandomx.so)"
+    echo "RandomX compilation failed - check dependencies"
+    exit 1
+fi
+
+echo "✅ Build verification passed - all critical components present"
+echo "   • Miningcore executable: $(stat -c%s build/Miningcore) bytes" 
+echo "   • Miningcore library: $(stat -c%s build/Miningcore.dll) bytes"
+echo "   • RandomX library: $(stat -c%s build/librandomx.so) bytes"
 ```
 
 ### 2. Generate Admin API Key
@@ -202,116 +368,156 @@ Create `config.json` in the root directory:
 
 ```json
 {
-  "logging": {
-    "level": "info",
-    "enableConsoleLog": true,
-    "enableConsoleColors": true,
-    "logFile": "logs/pool.log",
-    "logBaseDirectory": "logs"
-  },
-  "banning": {
-    "manager": "Integrated",
-    "banOnJunkReceive": true,
-    "banOnInvalidShares": false
-  },
-  "notifications": {
-    "enabled": false
-  },
-  "persistence": {
-    "postgres": {
-      "host": "127.0.0.1",
-      "port": 5432,
-      "user": "miningcore",
-      "password": "your_postgres_secure_password",
-      "database": "miningcore"
-    }
-  },
-  "paymentProcessing": {
-    "enabled": false,
-    "interval": 600
-  },
-  "api": {
-    "enabled": true,
-    "listenAddress": "0.0.0.0",
-    "port": 4000,
-    "adminApiKeys": ["your_admin_api_key_here"]
-  },
-  "pools": [
-    {
-      "id": "alpha1",
-      "enabled": true,
-      "coin": "alpha",
-      "address": "your_pool_alpha_address_here",
-      "rewardRecipients": [],
-      "blockRefreshInterval": 1000,
-      "jobRebroadcastTimeout": 10,
-      "clientConnectionTimeout": 600,
-      "banning": {
-        "enabled": true,
-        "time": 600,
-        "invalidPercent": 50,
-        "checkThreshold": 50
-      },
-      "AddressType": "BechSegwit",
-      "ports": {
-        "3052": {
-          "listenAddress": "0.0.0.0",
-          "difficulty": 0.1,
-          "tls": false,
-          "varDiff": {
-            "minDiff": 0.01,
-            "maxDiff": null,
-            "targetTime": 30,
-            "retargetTime": 90,
-            "variancePercent": 30,
-            "maxDelta": 500
-          }
-        },
-        "3053": {
-          "listenAddress": "0.0.0.0",
-          "difficulty": 0.002,
-          "tls": false,
-          "varDiff": {
-            "minDiff": 0.05,
-            "maxDiff": null,
-            "targetTime": 30,
-            "retargetTime": 90,
-            "variancePercent": 30,
-            "maxDelta": 500
-          }
-        },
-        "3054": {
-          "listenAddress": "0.0.0.0",
-          "difficulty": 0.0002,
-          "tls": false,
-          "varDiff": {
-            "minDiff": 0.00002,
-            "maxDiff": null,
-            "targetTime": 30,
-            "retargetTime": 90,
-            "variancePercent": 30,
-            "maxDelta": 500
-          }
-        }
-      },
-      "daemons": [
-        {
-          "host": "127.0.0.1",
-          "port": 8589,
-          "user": "your_rpc_username",
-          "password": "your_strong_rpc_password"
-        }
-      ],
-      "paymentProcessing": {
+    "logging": {
+        "level": "info",
+        "enableConsoleLog": true,
+        "enableConsoleColors": true,
+        "logFile": "alpha-pool.log",
+        "apiLogFile": "alpha-api.log",
+        "logBaseDirectory": "logs",
+        "perPoolLogFile": true
+    },
+    "banning": {
+        "manager": "Integrated",
+        "banOnJunkReceive": true,
+        "banOnInvalidShares": false
+    },
+    "notifications": {
         "enabled": false,
-        "minimumPayment": 1.0,
-        "payoutScheme": "PROP",
-        "payoutSchemeConfig": {
-          "factor": 1.0
+        "email": {
+            "host": "smtp.example.com",
+            "port": 587,
+            "user": "user",
+            "password": "password",
+            "fromAddress": "alpha-pool@unicity-pool.com",
+            "fromName": "Alpha Pool"
+        },
+        "admin": {
+            "enabled": false,
+            "emailAddress": "admin@example.com",
+            "notifyBlockFound": true
         }
-      }
-    }
-  ]
+    },
+    "persistence": {
+        "postgres": {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "user": "miningcore",
+            "password": "miningcore123",
+            "database": "miningcore"
+        }
+    },
+    "paymentProcessing": {
+        "enabled": true,
+        "interval": 600,
+        "shareRecoveryFile": "recovered-shares.txt"
+    },
+    "api": {
+        "enabled": true,
+        "listenAddress": "127.0.0.1",
+        "port": 4000,
+        "adminApiKeys": ["your_admin_api_key_here"],
+        "adminIpWhitelist": ["127.0.0.1"],
+        "metricsIpWhitelist": [],
+        "rateLimiting": {
+            "disabled": false,
+            "rules": [
+                {
+                    "Endpoint": "*",
+                    "Period": "1s",
+                    "Limit": 5
+                }
+            ],
+            "ipWhitelist": ["0.0.0.0/0"]
+        }
+    },
+    "pools": [
+        {
+            "id": "alpha1",
+            "enabled": true,
+            "coin": "alpha",
+            "address": "your_pool_alpha_address_here",
+            "rewardRecipients": [
+                {
+                    "address": "your_pool_alpha_address_here",
+                    "percentage": 5.0
+                }
+            ],
+            "blockRefreshInterval": 300,
+            "jobRebroadcastTimeout": 45,
+            "clientConnectionTimeout": 600,
+            "banning": {
+                "enabled": true,
+                "time": 600,
+                "invalidPercent": 50,
+                "checkThreshold": 50
+            },
+            "AddressType": "BechSegwit",
+            "extra": {
+                "useSingleInputUtxo": true,
+                "changeAddress": "your_pool_alpha_address_here",
+                "maxOutputsPerTx": 50
+            },
+            "ports": {
+                "3052": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.1,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.01,
+                        "maxDiff": null,
+                        "targetTime": 30,
+                        "retargetTime": 90,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                },
+                "3053": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.05,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.05,
+                        "maxDiff": null,
+                        "targetTime": 120,
+                        "retargetTime": 300,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                },
+                "3054": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.01,
+                    "tls": false,
+                    "varDiff": {
+                        "minDiff": 0.005,
+                        "maxDiff": null,
+                        "targetTime": 120,
+                        "retargetTime": 300,
+                        "variancePercent": 30,
+                        "maxDelta": 500
+                    }
+                }
+            },
+            "daemons": [
+                {
+                    "host": "127.0.0.1",
+                    "port": 8589,
+                    "user": "your_rpc_username",
+                    "password": "your_strong_rpc_password",
+                    "type": "json-rpc",
+                    "zmqBlockNotifySocket": "tcp://127.0.0.1:15101"
+                }
+            ],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PROP",
+                "payoutSchemeConfig": {
+                }
+            }
+        }
+    ]
 }
 ```
 
@@ -319,40 +525,243 @@ Create `config.json` in the root directory:
 
 **Replace the following placeholder values with your actual configuration:**
 
-- `your_postgres_secure_password` - PostgreSQL database password you created earlier
+- `miningcore123` - PostgreSQL database password (use the simple password from database setup)
 - `your_admin_api_key_here` - The API key generated in step 2 above
 - `your_pool_alpha_address_here` - Alpha address where pool fees will be collected
 - `your_rpc_username` / `your_strong_rpc_password` - Alpha daemon RPC credentials from your Alpha node configuration
 
 **Key Configuration Settings:**
 
-- **paymentProcessing.enabled: false** - Automatic payments disabled (using external PaymentProcessor)
+- **paymentProcessing.enabled: true** - Automatic payments enabled (can be disabled if using external PaymentProcessor)
 - **payoutScheme: "PROP"** - Proportional payment scheme (fair distribution based on submitted shares)
 - **AddressType: "BechSegwit"** - Required for Alpha Bech32 addresses (alpha1... format)
-- **rewardRecipients: []** - Pool fee recipients (empty = no pool fees)
-  - Example with 2% pool fee: `[{"address": "alpha1q...", "percentage": 2.0}]`
-- **minimumPayment: 1.0** - Minimum payout amount in ALPHA before payment is sent to miners
-- **factor: 1.0** - PROP scheme factor (1.0 = standard proportional distribution)
+- **rewardRecipients** - Pool fee configuration (5% pool fee in example):
+  ```json
+  [{"address": "your_pool_alpha_address_here", "percentage": 10.0}]
+  ```
+- **minimumPayment: 1** - Minimum payout amount in ALPHA before payment is sent to miners
+- **extra** - Advanced transaction settings:
+  - **useSingleInputUtxo: true** - Optimize transaction creation
+  - **changeAddress** - Where transaction change is sent (use pool address)
+  - **maxOutputsPerTx: 50** - Maximum payments per transaction
 - **ports** - Multiple Stratum mining ports with different difficulties:
-  - **3052**: High difficulty (0.1) for powerful miners
-  - **3053**: Medium difficulty (0.002) for average miners  
-  - **3054**: Low difficulty (0.0002) for low-power miners
-- **varDiff** - Variable difficulty adjustment for optimal performance:
-  - **minDiff**: Minimum difficulty allowed (0.00002 for low-power miners)
-  - **maxDiff**: Maximum difficulty (null = no limit, auto-adjusts based on hashrate)
-  - **targetTime**: Target time in seconds between shares (30s = optimal for most miners)
-  - **retargetTime**: How often to adjust difficulty in seconds (90s intervals)
-  - **variancePercent**: Allowed variance from target time before adjustment (30% = adjust if shares come faster than 21s or slower than 39s)
-  - **maxDelta**: Maximum percentage difficulty change per adjustment (500% = allows large adjustments for quick convergence)
-- **api.port: 4000** - Pool API port for statistics and PaymentProcessor access
-- **blockRefreshInterval: 1000** - How often (ms) to check for new blocks
+  - **3052**: High difficulty (0.1) for powerful miners (minDiff: 0.01)
+  - **3053**: Medium difficulty (0.002) for average miners (minDiff: 0.05)
+  - **3054**: Lower difficulty (0.01) for weaker miners (minDiff: 0.005, slower timing)
+- **varDiff** - Variable difficulty adjustment settings:
+  - **targetTime**: Target seconds between shares (30s for ports 3052/3053, 120s for 3054)
+  - **retargetTime**: Difficulty adjustment interval (90s for fast ports, 300s for slow)
+  - **variancePercent**: 30% - Adjustment trigger threshold
+  - **maxDelta**: 500% - Maximum difficulty change per adjustment
+- **API security**:
+  - **listenAddress: "127.0.0.1"** - Localhost only (more secure than 0.0.0.0)
+  - **adminIpWhitelist** - Restrict admin API access to specific IPs
+  - **rateLimiting** - Prevent API abuse (5 requests per second)
+- **ZMQ Configuration**: 
+  - **zmqBlockNotifySocket: "tcp://127.0.0.1:15101"** - Alpha node block notifications
+- **Performance settings**:
+  - **blockRefreshInterval: 300** - Check for new blocks every 300ms (faster response)
+  - **jobRebroadcastTimeout: 45** - Rebroadcast jobs after 45s (improved reliability)
 
 For complete configuration reference and advanced options, see the [Miningcore Configuration Wiki](https://github.com/coinfoundry/miningcore/wiki/Configuration).
 
-### 4. Test Pool Server
+### 4. Validate Pool Address
+
+**Critical**: Ensure your pool address is valid for the Alpha network before starting the pool.
+
+```bash
+# Generate a new address if needed
+./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password getnewaddress
+
+# Validate your pool address format (must be valid Alpha bech32 format)
+./alpha-cli -rpcuser=your_rpc_username -rpcpassword=your_strong_rpc_password validateaddress your_pool_address
+
+# Example valid Alpha address format: alpha1q...
+# Example output should show: "isvalid": true
+
+# Update your config.json with the validated address
+nano config.json
+# Replace "your_pool_alpha_address_here" with your validated address
+```
+
+### 5. Pre-Launch Configuration Validation
+
+Before starting the pool, validate your configuration to prevent common startup issues:
+
+```bash
+echo "🔧 Validating pool configuration before launch..."
+
+# Check Alpha node connectivity
+echo "📡 Testing Alpha node RPC connection..."
+RPC_USER=$(grep '"user":' ../config.json | cut -d'"' -f4)
+RPC_PASS=$(grep '"password":' ../config.json | cut -d'"' -f4)
+
+if curl -s --fail -u "$RPC_USER:$RPC_PASS" \
+   -H "Content-Type: application/json" \
+   -d '{"jsonrpc":"1.0","id":"test","method":"getblockchaininfo","params":[]}' \
+   http://localhost:8589/ > /dev/null; then
+    echo "✅ Alpha node RPC connection successful"
+    BLOCK_HEIGHT=$(curl -s -u "$RPC_USER:$RPC_PASS" \
+                  -H "Content-Type: application/json" \
+                  -d '{"jsonrpc":"1.0","id":"test","method":"getblockchaininfo","params":[]}' \
+                  http://localhost:8589/ | grep -o '"blocks":[0-9]*' | cut -d':' -f2)
+    echo "   📈 Current block height: $BLOCK_HEIGHT"
+else
+    echo "❌ Cannot connect to Alpha node on localhost:8589"
+    echo "   • Check that Alpha node is running"
+    echo "   • Verify RPC credentials in config.json match Alpha node configuration"
+    echo "   • Ensure RPC port 8589 is accessible"
+    exit 1
+fi
+
+# Validate pool addresses
+echo ""
+echo "📍 Validating pool addresses..."
+POOL_ADDRESS=$(grep '"address":' ../config.json | head -1 | cut -d'"' -f4)
+
+if [[ "$POOL_ADDRESS" =~ ^alpha1[a-zA-Z0-9]{39}$ ]]; then
+    echo "✅ Pool address format valid: $POOL_ADDRESS"
+    
+    # Test address validation with Alpha node
+    if curl -s --fail -u "$RPC_USER:$RPC_PASS" \
+       -H "Content-Type: application/json" \
+       -d "{\"jsonrpc\":\"1.0\",\"id\":\"test\",\"method\":\"validateaddress\",\"params\":[\"$POOL_ADDRESS\"]}" \
+       http://localhost:8589/ | grep '"isvalid":true' > /dev/null; then
+        echo "   ✅ Address validated by Alpha node"
+    else
+        echo "   ⚠️  WARNING: Alpha node validation failed - check address"
+    fi
+else
+    echo "❌ Invalid pool address format: $POOL_ADDRESS"
+    echo "   Expected format: alpha1... (40 character Bech32 format)"
+    exit 1
+fi
+
+# Check database connectivity
+echo ""
+echo "🗄️  Testing database connection..."
+DB_PASS=$(grep '"password":' ../config.json | grep postgres | cut -d'"' -f4)
+if PGPASSWORD="$DB_PASS" psql -h localhost -U miningcore -d miningcore -c "SELECT 1;" > /dev/null 2>&1; then
+    echo "✅ Database connection successful"
+else
+    echo "❌ Database connection failed"
+    echo "   • Check PostgreSQL is running: sudo systemctl status postgresql"
+    echo "   • Verify database credentials in config.json"
+    echo "   • Test manual connection: PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore"
+    exit 1
+fi
+
+# Validate API configuration
+echo ""
+echo "🔑 Validating API configuration..."
+API_KEY=$(grep '"adminApiKeys":' ../config.json -A1 | grep '"' | cut -d'"' -f2 | head -1)
+
+if [[ ${#API_KEY} -eq 64 ]]; then
+    echo "✅ Admin API key format valid (64 characters)"
+else
+    echo "❌ Admin API key invalid - should be 64 characters"
+    echo "   Generate a new key with: openssl rand -hex 32"
+    exit 1
+fi
+
+echo ""
+echo "✅ Configuration validation complete - ready to launch pool! 🚀"
+```
+
+### 6. Test Pool Server
 ```bash
 cd build
 ./Miningcore -c ../config.json
+```
+
+### 7. Verify Successful Startup
+
+**Look for these success indicators in the pool startup logs:**
+
+```bash
+echo "🚀 Starting pool server..."
+start_time=$(date +%s)
+
+# Monitor pool logs for successful startup
+tail -f ../logs/pool.log &
+LOG_PID=$!
+
+# Give pool time to start and check startup status
+sleep 10
+
+echo ""
+echo "🔍 Checking pool startup status..."
+
+# Check if pool process is running
+if pgrep -f "Miningcore" > /dev/null; then
+    echo "✅ Pool process is running"
+else
+    echo "❌ Pool process not found - check logs above for errors"
+    kill $LOG_PID 2>/dev/null || true
+    exit 1
+fi
+
+# Test API endpoint
+echo "🌐 Testing API connectivity..."
+if curl -s --fail http://localhost:4000/api/pools > /dev/null; then
+    echo "✅ Pool API is responding on port 4000"
+    
+    # Get pool info
+    POOL_INFO=$(curl -s http://localhost:4000/api/pools | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+    echo "   📋 Pool ID: $POOL_INFO"
+else
+    echo "❌ Pool API not accessible on port 4000"
+    echo "   Check firewall and pool configuration"
+fi
+
+# Test stratum ports
+echo "⛏️  Testing mining ports..."
+STRATUM_PORTS="3052 3053 3054"
+for port in $STRATUM_PORTS; do
+    if timeout 5 bash -c "echo > /dev/tcp/localhost/$port" 2>/dev/null; then
+        echo "   ✅ Stratum port $port is listening"
+    else
+        echo "   ❌ Stratum port $port not accessible"
+    fi
+done
+
+# Check RandomX performance
+echo "🔧 Checking RandomX multi-core optimization..."
+CPU_CORES=$(nproc)
+if grep -q "Creating.*VMs" ../logs/pool.log 2>/dev/null; then
+    VM_COUNT=$(grep "Creating.*VMs" ../logs/pool.log | tail -1 | grep -o '[0-9]*' | head -1)
+    echo "✅ RandomX initialized with $VM_COUNT VMs (CPU cores: $CPU_CORES)"
+    
+    if [ "$VM_COUNT" -gt 1 ]; then
+        echo "   🚀 Multi-core optimization ACTIVE"
+    else
+        echo "   ⚠️  WARNING: Only 1 VM created - multi-core optimization may not be active"
+    fi
+else
+    echo "⚠️  RandomX VM information not found in logs yet"
+fi
+
+# Stop log monitoring
+kill $LOG_PID 2>/dev/null || true
+
+# Calculate startup time
+end_time=$(date +%s)
+startup_duration=$((end_time - start_time))
+
+echo ""
+echo "🎉 Pool startup verification complete in ${startup_duration} seconds!"
+echo ""
+echo "📋 Pool Status Summary:"
+echo "   • Process Status: Running"
+echo "   • API Endpoint: http://localhost:4000/api/pools" 
+echo "   • Mining Ports: 3052 (high diff), 3053 (med diff), 3054 (low diff)"
+echo "   • RandomX: Multi-core optimization enabled"
+echo ""
+echo "🔗 Next Steps:"
+echo "   1. Test with mining software: Connect miner to localhost:3052"
+echo "   2. Monitor performance: htop (should show multi-core activity)"
+echo "   3. Check logs: tail -f ../logs/pool.log"
+echo "   4. Web interface: Set up frontend (next section)"
 ```
 
 <a id="web-frontend-setup"></a>
@@ -483,10 +892,22 @@ server {
 sudo mkdir -p /var/www/your-pool-domain.com/html
 sudo cp -r /path/to/unicity-mining-core-ui/* /var/www/your-pool-domain.com/html/
 
+# Remove default Nginx site to prevent conflicts
+sudo rm -f /etc/nginx/sites-enabled/default
+
 # Enable site
 sudo ln -s /etc/nginx/sites-available/your-pool-domain.com /etc/nginx/sites-enabled/
+
+# Update site configuration for default server
+sudo sed -i 's/listen 80;/listen 80 default_server;/' /etc/nginx/sites-available/your-pool-domain.com
+sudo sed -i 's/listen \[::\]:80;/listen [::]:80 default_server;/' /etc/nginx/sites-available/your-pool-domain.com
+
+# Test configuration and reload
 sudo nginx -t
 sudo systemctl reload nginx
+
+# Verify mining pool interface is served (should show pool content)
+curl -s http://localhost/ | grep -i "mining\|pool\|unicity" || echo "Warning: Pool interface may not be loading correctly"
 ```
 
 ### 6. SSL/HTTPS Setup (Production)
@@ -654,7 +1075,7 @@ Create `src/PaymentProcessor/appsettings.json`:
 ```json
 {
   "PaymentProcessor": {
-    "ApiBaseUrl": "http://localhost:4000",
+    "ApiBaseUrl": "https://your-pool-domain.com",
     "PoolId": "alpha1",
     "ApiKey": "your_admin_api_key_here",
     "TimeoutSeconds": 30,
@@ -663,14 +1084,22 @@ Create `src/PaymentProcessor/appsettings.json`:
       "RpcUser": "your_rpc_username",
       "RpcPassword": "your_strong_rpc_password",
       "RpcTimeoutSeconds": 30,
-      "DataDir": "/opt/alpha",
+      "DataDir": "/path/to/alpha/data",
       "WalletName": "pool_wallet",
-      "WalletAddress": "",
+      "WalletAddress": "your_pool_wallet_address_here",
       "ChangeAddress": "your_change_address_here",
       "WalletPassword": "",
       "FeePerByte": 0.00001,
       "ConfirmationsRequired": 1,
       "UseWalletRPC": true
+    },
+    "Automation": {
+      "Enabled": false,
+      "BatchSize": 10,
+      "BlockPeriod": 1,
+      "ShowWalletBalance": true,
+      "PollingIntervalSeconds": 30,
+      "MinimumBalance": 1.0
     }
   },
   "Serilog": {
@@ -706,27 +1135,39 @@ Create `src/PaymentProcessor/appsettings.json`:
 **Replace the following placeholder values with your actual configuration:**
 
 - `your_admin_api_key_here` - The same API key generated for the pool server
-- `your_rpc_username` / `your_strong_rpc_password` - Alpha daemon RPC credentials on payment machine
+- `your_rpc_username` / `your_strong_rpc_password` - Alpha daemon RPC credentials on payment machine  
+- `your_pool_wallet_address_here` - Main wallet address for pool payments
 - `your_change_address_here` - Alpha address for transaction change (recommend using pool address)
+- `your-pool-domain.com` - Your pool's domain name or IP address
+- `/path/to/alpha/data` - Path to Alpha blockchain data directory
 
 **PaymentProcessor Settings:**
 
-- **ApiBaseUrl** - Pool server API URL (update to your pool server's IP/domain in production)
+- **ApiBaseUrl** - Pool server API URL (use HTTPS in production, e.g., `https://your-pool-domain.com`)
 - **PoolId** - Must match the pool ID from config.json ("alpha1")
 - **TimeoutSeconds** - API request timeout (30s recommended)
 
-**AlphaDaemon Settings:**
+**Alpha Daemon Settings:**
 
-- **RpcUrl** - Local Alpha daemon on payment machine (always localhost:8589)
-- **DataDir** - Alpha blockchain data directory path
-- **WalletName** - Wallet containing pool funds ("pool_wallet")
-- **WalletAddress** - Primary address from your pool wallet (used for payments)
-- **ChangeAddress** - Address for transaction change (recommend using pool address)
-- **FeePerByte** - Transaction fee rate (0.00001 ALPHA recommended)
-- **ConfirmationsRequired** - UTXOs must have this many confirmations (1 = faster payments)
-- **UseWalletRPC** - Always true (use wallet for signing transactions)
+- **RpcUrl** - Alpha node RPC endpoint (usually localhost:8589)
+- **DataDir** - Alpha blockchain data directory path (e.g., `/opt/alpha` or `~/.alpha`)
+- **WalletName** - Name of the pool wallet file
+- **WalletAddress** - Pool wallet address for payments (must be specified)
+- **ChangeAddress** - Alpha address for transaction change (recommend using pool address)
+- **FeePerByte** - Transaction fee rate (0.00001 recommended)
+- **ConfirmationsRequired** - Block confirmations before processing (1 for fast payments)
+- **UseWalletRPC** - Use Alpha wallet RPC (true recommended)
 
-**Serilog Settings:**
+**Automation Settings:**
+
+- **Enabled: false** - Manual payment processing (set to true for automatic payments)
+- **BatchSize: 10** - Number of payments per transaction (10-50 recommended)
+- **BlockPeriod: 1** - Process payments every N blocks (1 = every block)
+- **ShowWalletBalance: true** - Display wallet balance in logs
+- **PollingIntervalSeconds: 30** - How often to check for pending payments
+- **MinimumBalance: 1.0** - Minimum wallet balance required before processing payments
+
+**Logging Settings:**
 
 - **MinimumLevel** - Log verbosity (Information = standard, Debug for troubleshooting)
 - **WriteTo.File** - Daily rotating log files in logs/ directory
@@ -801,32 +1242,6 @@ Your Unicity Alpha mining pool is now ready to serve miners and contribute to th
 <a id="troubleshooting"></a>
 ## Troubleshooting
 
-### Common Issues
-
-#### Pool Won't Start
-- Check Alpha node is running and synced
-- Verify database connection
-- Check configuration file syntax
-- Review log files in `logs/` directory
-
-#### No Shares Accepted
-- Verify stratum port configuration
-- Check Alpha node connectivity
-- Validate pool address
-- Review miner configuration
-
-#### Payment Issues
-- Ensure Alpha node wallet has sufficient funds
-- Check PaymentProcessor configuration
-- Verify API key authentication
-- Review payment logs
-
-#### Performance Issues
-- Monitor system resources (CPU, RAM, network)
-- Check database performance
-- Review pool configuration parameters
-- Consider scaling up hardware
-
 ### Log Locations
 - Pool logs: `logs/pool.log`
 - Payment logs: `src/PaymentProcessor/logs/`
@@ -837,14 +1252,61 @@ Your Unicity Alpha mining pool is now ready to serve miners and contribute to th
 <a id="security-best-practices"></a>
 ## Security Best Practices
 
-1. **Keep software updated**
-2. **Use strong passwords and API keys**
-3. **Implement proper firewall rules**
-4. **Regular security audits**
-5. **Backup procedures**
-6. **Monitor for suspicious activity**
-7. **Use SSL/TLS in production**
-8. **Limit RPC access to localhost only**
+### Create Dedicated Pool User
+
+**Important**: Do not run the pool as root in production. Create a dedicated user:
+
+```bash
+# Create dedicated user
+sudo adduser --disabled-password --gecos "Mining Pool" pooluser
+sudo usermod -aG sudo pooluser
+
+# Set ownership of pool files
+sudo chown -R pooluser:pooluser /path/to/unicity-mining-core
+
+# Create systemd service for automatic startup
+sudo nano /etc/systemd/system/miningcore.service
+```
+
+**Systemd service file content:**
+```ini
+[Unit]
+Description=Miningcore Mining Pool
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=pooluser
+WorkingDirectory=/home/pooluser/unicity-mining-core
+ExecStart=/home/pooluser/unicity-mining-core/build/Miningcore -c config.json
+Restart=always
+RestartSec=10
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Enable and start service
+sudo systemctl enable miningcore
+sudo systemctl start miningcore
+sudo systemctl status miningcore
+
+# View logs
+sudo journalctl -u miningcore -f
+```
+
+### Additional Security Measures
+
+1. **Keep software updated** - Regular system and software updates
+2. **Use strong passwords and API keys** - Generate secure 64-character API keys
+3. **Implement proper firewall rules** - Only allow necessary ports (22, 4000, 3052-3054)
+4. **Regular security audits** - Monitor logs and system access
+5. **Backup procedures** - Regular database and configuration backups
+6. **Monitor for suspicious activity** - Watch for unusual mining patterns
+7. **Use SSL/TLS in production** - Encrypt API and web frontend communications
+8. **Limit RPC access to localhost only** - Keep Alpha node RPC internal
 
 
 

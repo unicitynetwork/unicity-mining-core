@@ -150,7 +150,8 @@ public class AlphaJob : BitcoinJob
             this.seedHashHex = this.seedHash.ToHexString();
 
             // Initialize RandomX environment for this seed hash if needed
-            Native.RandomX.CreateSeed(randomxRealm, seedHashHex);
+            // Use -1 to utilize all available CPU cores for maximum performance
+            Native.RandomX.CreateSeed(randomxRealm, seedHashHex, vmCount: -1);
             logger.Info(() => $"Used RXEpoch {epoch} to calculate RandomX seed {seedHashHex} for realm {randomxRealm}");
             
             // Store the pool address script bytes for coinbase transaction creation
