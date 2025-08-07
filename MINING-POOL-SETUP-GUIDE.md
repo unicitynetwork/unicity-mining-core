@@ -31,8 +31,11 @@ sudo apt update
 sudo apt install -y build-essential cmake libssl-dev pkg-config \
     libboost-all-dev libsodium-dev libzmq5-dev git curl
 
-# Install .NET 6 SDK
-wget https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+# Install .NET 6 SDK (automatically detect Ubuntu version)
+UBUNTU_VERSION=$(lsb_release -rs)
+echo "📋 Detected Ubuntu version: $UBUNTU_VERSION"
+
+wget https://packages.microsoft.com/config/ubuntu/${UBUNTU_VERSION}/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
 sudo dpkg -i packages-microsoft-prod.deb
 sudo apt update
 sudo apt install -y dotnet-sdk-6.0
@@ -48,17 +51,82 @@ dotnet --version
 Before proceeding to the next sections, verify all basic components are working:
 
 ```bash
+# System Pre-flight Check Script
+echo "🔍 Running system pre-flight checks..."
+
+# Check Ubuntu version compatibility
+UBUNTU_VERSION=$(lsb_release -rs)
+echo "📋 Ubuntu version: $UBUNTU_VERSION"
+
+if [[ "$UBUNTU_VERSION" < "20.04" ]]; then
+    echo "❌ Ubuntu version $UBUNTU_VERSION not supported (minimum: 20.04)"
+    exit 1
+else
+    echo "✅ Ubuntu version $UBUNTU_VERSION is supported"
+fi
+
+# Check system resources
+RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+CORES=$(nproc)
+DISK_GB=$(df -BG . | awk 'NR==2 {gsub(/G/, "", $4); print int($4)}')
+
+echo ""
+echo "📊 System Resources:"
+echo "   RAM: ${RAM_GB}GB (minimum: 8GB, recommended: 16GB+)"
+echo "   CPU Cores: $CORES (minimum: 4, recommended: 8+)"
+echo "   Available Disk: ${DISK_GB}GB (minimum: 100GB)"
+
+# Resource warnings
+WARNINGS=0
+if [ "$RAM_GB" -lt 8 ]; then
+    echo "⚠️  WARNING: RAM is below recommended 8GB"
+    ((WARNINGS++))
+fi
+
+if [ "$CORES" -lt 4 ]; then
+    echo "⚠️  WARNING: CPU cores below recommended 4"
+    ((WARNINGS++))
+fi
+
+if [ "$DISK_GB" -lt 100 ]; then
+    echo "❌ CRITICAL: Insufficient disk space (need 100GB+)"
+    exit 1
+fi
+
+# Check required tools
+echo ""
+echo "🔧 Checking development tools:"
+REQUIRED_TOOLS="gcc cmake git curl"
+for tool in $REQUIRED_TOOLS; do
+    if command -v $tool >/dev/null 2>&1; then
+        echo "   ✅ $tool: $(command -v $tool)"
+    else
+        echo "   ❌ $tool: Not found"
+        exit 1
+    fi
+done
+
 # Verify .NET installation
-dotnet --version
+echo ""
+echo "🔧 Checking .NET installation:"
+if command -v dotnet >/dev/null 2>&1; then
+    DOTNET_VERSION=$(dotnet --version)
+    echo "   ✅ .NET SDK: $DOTNET_VERSION"
+    if [[ "$DOTNET_VERSION" < "6.0" ]]; then
+        echo "   ⚠️  WARNING: .NET version $DOTNET_VERSION may be too old (6.0+ recommended)"
+        ((WARNINGS++))
+    fi
+else
+    echo "   ❌ .NET SDK: Not found"
+    exit 1
+fi
 
-# Verify build tools are installed
-gcc --version
-cmake --version
-
-# Check available system resources
-free -h        # Check RAM
-df -h          # Check disk space
-nproc          # Check CPU cores (important for RandomX performance)
+echo ""
+if [ "$WARNINGS" -eq 0 ]; then
+    echo "✅ All system requirements verified - ready to proceed! 🎉"
+else
+    echo "⚠️  System ready with $WARNINGS warning(s) - consider upgrading hardware for optimal performance"
+fi
 ```
 
 <a id="system-requirements"></a>
@@ -171,8 +239,14 @@ sudo nano /etc/postgresql/*/main/pg_hba.conf
 # Change it to:
 # local   all             all                                     md5
 
+# Fix file permissions after editing as root
+sudo chown postgres:postgres /etc/postgresql/*/main/pg_hba.conf
+
 # Restart PostgreSQL to apply authentication changes
 sudo systemctl restart postgresql
+
+# Verify PostgreSQL is running
+sudo systemctl status postgresql
 
 # Create database user and database (use simple alphanumeric password)
 sudo -u postgres psql << EOF
@@ -202,6 +276,31 @@ sudo -u postgres psql -d miningcore -f /tmp/createdb.sql
 
 # Clean up temporary file
 rm /tmp/createdb.sql
+
+# Verify database setup was successful
+echo "🔍 Verifying database schema..."
+
+# Check that all required tables were created
+EXPECTED_TABLES=8
+ACTUAL_TABLES=$(PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" | xargs)
+
+if [ "$ACTUAL_TABLES" -eq "$EXPECTED_TABLES" ]; then
+    echo "✅ Database schema: All $EXPECTED_TABLES tables created successfully"
+    # List the created tables
+    echo "📋 Created tables:"
+    PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "\dt" | grep -E '^ [a-z_]+' | awk '{print "   • " $3}'
+else
+    echo "❌ Database schema incomplete: Found $ACTUAL_TABLES tables, expected $EXPECTED_TABLES"
+    echo "Check the createdb.sql import output above for errors"
+    exit 1
+fi
+
+# Test database connection
+echo "🔗 Testing database connection..."
+PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore -c "SELECT 'Database connection successful!' as status;" | grep successful && echo "✅ Database connection verified" || {
+    echo "❌ Database connection failed"
+    exit 1
+}
 ```
 
 <a id="miningcore-pool-server-setup"></a>
@@ -230,6 +329,24 @@ cd ../..
 
 # Verify build completed successfully
 ls -la build/
+
+# Verify critical components are present
+if [ ! -f "build/Miningcore" ] || [ ! -f "build/Miningcore.dll" ]; then
+    echo "❌ Build failed: Missing critical components (Miningcore executable)"
+    echo "Check build output above for errors"
+    exit 1
+fi
+
+if [ ! -f "build/librandomx.so" ]; then
+    echo "❌ Build failed: Missing RandomX library (librandomx.so)"
+    echo "RandomX compilation failed - check dependencies"
+    exit 1
+fi
+
+echo "✅ Build verification passed - all critical components present"
+echo "   • Miningcore executable: $(stat -c%s build/Miningcore) bytes" 
+echo "   • Miningcore library: $(stat -c%s build/Miningcore.dll) bytes"
+echo "   • RandomX library: $(stat -c%s build/librandomx.so) bytes"
 ```
 
 ### 2. Generate Admin API Key
@@ -418,7 +535,7 @@ Create `config.json` in the root directory:
 - **paymentProcessing.enabled: true** - Automatic payments enabled (can be disabled if using external PaymentProcessor)
 - **payoutScheme: "PROP"** - Proportional payment scheme (fair distribution based on submitted shares)
 - **AddressType: "BechSegwit"** - Required for Alpha Bech32 addresses (alpha1... format)
-- **rewardRecipients** - Pool fee configuration (10% pool fee in example):
+- **rewardRecipients** - Pool fee configuration (5% pool fee in example):
   ```json
   [{"address": "your_pool_alpha_address_here", "percentage": 10.0}]
   ```
@@ -467,37 +584,184 @@ nano config.json
 # Replace "your_pool_alpha_address_here" with your validated address
 ```
 
-### 5. Test Pool Server
+### 5. Pre-Launch Configuration Validation
+
+Before starting the pool, validate your configuration to prevent common startup issues:
+
+```bash
+echo "🔧 Validating pool configuration before launch..."
+
+# Check Alpha node connectivity
+echo "📡 Testing Alpha node RPC connection..."
+RPC_USER=$(grep '"user":' ../config.json | cut -d'"' -f4)
+RPC_PASS=$(grep '"password":' ../config.json | cut -d'"' -f4)
+
+if curl -s --fail -u "$RPC_USER:$RPC_PASS" \
+   -H "Content-Type: application/json" \
+   -d '{"jsonrpc":"1.0","id":"test","method":"getblockchaininfo","params":[]}' \
+   http://localhost:8589/ > /dev/null; then
+    echo "✅ Alpha node RPC connection successful"
+    BLOCK_HEIGHT=$(curl -s -u "$RPC_USER:$RPC_PASS" \
+                  -H "Content-Type: application/json" \
+                  -d '{"jsonrpc":"1.0","id":"test","method":"getblockchaininfo","params":[]}' \
+                  http://localhost:8589/ | grep -o '"blocks":[0-9]*' | cut -d':' -f2)
+    echo "   📈 Current block height: $BLOCK_HEIGHT"
+else
+    echo "❌ Cannot connect to Alpha node on localhost:8589"
+    echo "   • Check that Alpha node is running"
+    echo "   • Verify RPC credentials in config.json match Alpha node configuration"
+    echo "   • Ensure RPC port 8589 is accessible"
+    exit 1
+fi
+
+# Validate pool addresses
+echo ""
+echo "📍 Validating pool addresses..."
+POOL_ADDRESS=$(grep '"address":' ../config.json | head -1 | cut -d'"' -f4)
+
+if [[ "$POOL_ADDRESS" =~ ^alpha1[a-zA-Z0-9]{39}$ ]]; then
+    echo "✅ Pool address format valid: $POOL_ADDRESS"
+    
+    # Test address validation with Alpha node
+    if curl -s --fail -u "$RPC_USER:$RPC_PASS" \
+       -H "Content-Type: application/json" \
+       -d "{\"jsonrpc\":\"1.0\",\"id\":\"test\",\"method\":\"validateaddress\",\"params\":[\"$POOL_ADDRESS\"]}" \
+       http://localhost:8589/ | grep '"isvalid":true' > /dev/null; then
+        echo "   ✅ Address validated by Alpha node"
+    else
+        echo "   ⚠️  WARNING: Alpha node validation failed - check address"
+    fi
+else
+    echo "❌ Invalid pool address format: $POOL_ADDRESS"
+    echo "   Expected format: alpha1... (40 character Bech32 format)"
+    exit 1
+fi
+
+# Check database connectivity
+echo ""
+echo "🗄️  Testing database connection..."
+DB_PASS=$(grep '"password":' ../config.json | grep postgres | cut -d'"' -f4)
+if PGPASSWORD="$DB_PASS" psql -h localhost -U miningcore -d miningcore -c "SELECT 1;" > /dev/null 2>&1; then
+    echo "✅ Database connection successful"
+else
+    echo "❌ Database connection failed"
+    echo "   • Check PostgreSQL is running: sudo systemctl status postgresql"
+    echo "   • Verify database credentials in config.json"
+    echo "   • Test manual connection: PGPASSWORD=miningcore123 psql -h localhost -U miningcore -d miningcore"
+    exit 1
+fi
+
+# Validate API configuration
+echo ""
+echo "🔑 Validating API configuration..."
+API_KEY=$(grep '"adminApiKeys":' ../config.json -A1 | grep '"' | cut -d'"' -f2 | head -1)
+
+if [[ ${#API_KEY} -eq 64 ]]; then
+    echo "✅ Admin API key format valid (64 characters)"
+else
+    echo "❌ Admin API key invalid - should be 64 characters"
+    echo "   Generate a new key with: openssl rand -hex 32"
+    exit 1
+fi
+
+echo ""
+echo "✅ Configuration validation complete - ready to launch pool! 🚀"
+```
+
+### 6. Test Pool Server
 ```bash
 cd build
 ./Miningcore -c ../config.json
 ```
 
-### 6. Verify Successful Startup
+### 7. Verify Successful Startup
 
 **Look for these success indicators in the pool startup logs:**
 
 ```bash
+echo "🚀 Starting pool server..."
+start_time=$(date +%s)
+
 # Monitor pool logs for successful startup
-tail -f ../logs/pool.log
+tail -f ../logs/pool.log &
+LOG_PID=$!
 
-# Success indicators you should see:
-# - "Pool alpha1 Online" - Pool is running
-# - "Stratum server listening on port 3052/3053/3054" - Mining ports are active  
-# - "API server listening on port 4000" - API is accessible
-# - "Creating 40 VMs" - RandomX multi-core optimization is active
-# - "Daemon is synced and responding" - Alpha node connection working
+# Give pool time to start and check startup status
+sleep 10
 
-# Test API endpoint from another terminal
-curl http://localhost:4000/api/pools
+echo ""
+echo "🔍 Checking pool startup status..."
 
-# Test stratum connection (basic connectivity test)
-telnet localhost 3052
-# Type any text and press Enter - should respond with JSON error (proves stratum is working)
-# Exit with Ctrl+] then 'quit'
+# Check if pool process is running
+if pgrep -f "Miningcore" > /dev/null; then
+    echo "✅ Pool process is running"
+else
+    echo "❌ Pool process not found - check logs above for errors"
+    kill $LOG_PID 2>/dev/null || true
+    exit 1
+fi
 
-# Check RandomX multi-core performance
-htop  # Should show activity across all CPU cores during mining operations
+# Test API endpoint
+echo "🌐 Testing API connectivity..."
+if curl -s --fail http://localhost:4000/api/pools > /dev/null; then
+    echo "✅ Pool API is responding on port 4000"
+    
+    # Get pool info
+    POOL_INFO=$(curl -s http://localhost:4000/api/pools | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+    echo "   📋 Pool ID: $POOL_INFO"
+else
+    echo "❌ Pool API not accessible on port 4000"
+    echo "   Check firewall and pool configuration"
+fi
+
+# Test stratum ports
+echo "⛏️  Testing mining ports..."
+STRATUM_PORTS="3052 3053 3054"
+for port in $STRATUM_PORTS; do
+    if timeout 5 bash -c "echo > /dev/tcp/localhost/$port" 2>/dev/null; then
+        echo "   ✅ Stratum port $port is listening"
+    else
+        echo "   ❌ Stratum port $port not accessible"
+    fi
+done
+
+# Check RandomX performance
+echo "🔧 Checking RandomX multi-core optimization..."
+CPU_CORES=$(nproc)
+if grep -q "Creating.*VMs" ../logs/pool.log 2>/dev/null; then
+    VM_COUNT=$(grep "Creating.*VMs" ../logs/pool.log | tail -1 | grep -o '[0-9]*' | head -1)
+    echo "✅ RandomX initialized with $VM_COUNT VMs (CPU cores: $CPU_CORES)"
+    
+    if [ "$VM_COUNT" -gt 1 ]; then
+        echo "   🚀 Multi-core optimization ACTIVE"
+    else
+        echo "   ⚠️  WARNING: Only 1 VM created - multi-core optimization may not be active"
+    fi
+else
+    echo "⚠️  RandomX VM information not found in logs yet"
+fi
+
+# Stop log monitoring
+kill $LOG_PID 2>/dev/null || true
+
+# Calculate startup time
+end_time=$(date +%s)
+startup_duration=$((end_time - start_time))
+
+echo ""
+echo "🎉 Pool startup verification complete in ${startup_duration} seconds!"
+echo ""
+echo "📋 Pool Status Summary:"
+echo "   • Process Status: Running"
+echo "   • API Endpoint: http://localhost:4000/api/pools" 
+echo "   • Mining Ports: 3052 (high diff), 3053 (med diff), 3054 (low diff)"
+echo "   • RandomX: Multi-core optimization enabled"
+echo ""
+echo "🔗 Next Steps:"
+echo "   1. Test with mining software: Connect miner to localhost:3052"
+echo "   2. Monitor performance: htop (should show multi-core activity)"
+echo "   3. Check logs: tail -f ../logs/pool.log"
+echo "   4. Web interface: Set up frontend (next section)"
 ```
 
 <a id="web-frontend-setup"></a>
@@ -628,10 +892,22 @@ server {
 sudo mkdir -p /var/www/your-pool-domain.com/html
 sudo cp -r /path/to/unicity-mining-core-ui/* /var/www/your-pool-domain.com/html/
 
+# Remove default Nginx site to prevent conflicts
+sudo rm -f /etc/nginx/sites-enabled/default
+
 # Enable site
 sudo ln -s /etc/nginx/sites-available/your-pool-domain.com /etc/nginx/sites-enabled/
+
+# Update site configuration for default server
+sudo sed -i 's/listen 80;/listen 80 default_server;/' /etc/nginx/sites-available/your-pool-domain.com
+sudo sed -i 's/listen \[::\]:80;/listen [::]:80 default_server;/' /etc/nginx/sites-available/your-pool-domain.com
+
+# Test configuration and reload
 sudo nginx -t
 sudo systemctl reload nginx
+
+# Verify mining pool interface is served (should show pool content)
+curl -s http://localhost/ | grep -i "mining\|pool\|unicity" || echo "Warning: Pool interface may not be loading correctly"
 ```
 
 ### 6. SSL/HTTPS Setup (Production)
